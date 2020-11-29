@@ -1,120 +1,114 @@
-; Buggy machine language monitor and rudimentary O.S. version 1.0
-; Created by Lennart Benschop
-; Ported to Simon6809 by Erturk Kocalar
+	;Buggy machine language monitor and rudimentary O.S. version 1.0
 
 * Memory map of SBC
-* $0000-$0040 	Zero page variables reserved by monitor and O.S.
-* $0040-$00FF 	Zero page portion for user programs.
-* $0100-$017F 	Xmodem buffer 0, terminal input buffer,
-* $0180-$01FF 	Xmodem buffer 1, terminal output buffer.
-* $0200-$027F 	Terminal input line.
-* $0280-$02FF 	Variables reserved by monitor and O.S.
-* $0300-$0400 	System stack.
-* $0400-$7FFF 	RAM for user programs and data.
-* $8000-$9FFF 	eePROM for user programs.
-* $A000-$CFFF 	not used
-* $D000-$D7FF 	I/O addresses.
-* $D800-$DFFF 	not used
-* $E000-$FFFF 	Monitor ROM
+* $0-$40 Zero page variables reserved by monitor and O.S.
+* $40-$FF Zero page portion for user programs.
+* $100-$17F Xmodem buffer 0, terminal input buffer,
+* $180-$1FF Xmodem buffer 1, terminal output buffer.
+* $200-$27F Terminal input line.
+* $280-$2FF Variables reserved by monitor and O.S.
+* $300-$400 System stack.
+* $400-$7FFF RAM for user programs and data.
+* $8000-$DFFF PROM for user programs.
+* $E000-$E1FF I/O addresses.
+* $E200-$E3FF Reserved.
+* $E400-$FFFF Monitor ROM
 
-; Reserved Zero page addresses
+* Reserved Zero page addresses
 		org $0000
+* First the I/O routine vectors.
+getchar		rmb 3		;Jump to getchar routine.
+putchar		rmb 3		;Jump to putchar routine.
+getline		rmb 3		;Jump to getline routine.
+putline		rmb 3		;Jump to putline routine.
+putcr		rmb 3		;Jump to putcr routine.
+getpoll         rmb 3           ;Jump to getpoll routine.
+xopenin		rmb 3		;Jump to xopenin routine.
+xopenout	rmb 3		;Jump to xopenout routine.
+xabortin	rmb 3           ;Jump to xabortin routine.
+xclosein	rmb 3		;Jump to xclosein routine.
+xcloseout	rmb 3		;Jump to xcloseout routine.
+delay		rmb 3		;Jump to delay routine.
 
-; Interrupt vectors (start at $0)
-; All interrupts except RESET are vectored through jumps.
-; FIRQ is FT245RL interrupt.
+*Next the system variables in the zero page.
+temp		rmb 2            ;hex scanning/disasm
+temp2		rmb 2            ;Hex scanning/disasm
+temp3 		rmb 2            ;Used in Srecords, H command
+timer		rmb 3            ;3 byte timer, incremented every 20ms
+xpacknum	rmb 1            ;Packet number for XMODEM block,
+xsum		rmb 1		 ;XMODEM checksum
+lastok		rmb 1            ;flag to indicate last block was OK
+xcount		rmb 1		 ;Count of characters in buffer.
+xmode 		rmb 1		 ;XMODEM mode, 0 none, 1 out, 2 in.
+disflg		rmb 1
 
-swi3vec		rmb 3		; DO NOT CHANGE
+* I/O buffers.
+buflen		equ 128		;Length of input line buffer.
+		org $100
+buf0		rmb 128		;Xmodem buffer 0, serial input buffer.
+buf1		rmb 128		;Xmodem buffer 1, serial output buffer.
+linebuf		rmb buflen	;Input line buffer.
+
+
+* Interrupt vectors (start at $280)
+* All interrupts except RESET are vectored through jumps.
+* FIRQ is timer interrupt, IRQ is ACIA interrupt.
+swi3vec		rmb 3
 swi2vec		rmb 3
 firqvec		rmb 3
 irqvec		rmb 3
 swivec 		rmb 3
 nmivec		rmb 3
-;xerrvec		rmb 3		;Error handler for XMODEM error.
+xerrvec		rmb 3           ;Error handler for XMODEM error.
 exprvec		rmb 3		;Expression evaluator in assembler.
-asmerrvec		rmb 3		;Error handler for assembler errors.
-pseudovec		rmb 3		;Vector for asm pseudo instructions.
+asmerrvec	rmb 3		;Error handler for assembler errors.
+pseudovec	rmb 3		;Vector for asm pseudo instructions.
 
-
-; First the I/O routine vectors.
-getchar		rmb 3		;Jump to getchar routine. - DO NOT CHANGE
-putchar		rmb 3		;Jump to putchar routine.
-getline		rmb 3		;Jump to getline routine.
-putline		rmb 3		;Jump to putline routine.
-putcr		rmb 3		;Jump to putcr routine.
-getpoll		rmb 3		;Jump to getpoll routine.
-;xopenin		rmb 3		;Jump to xopenin routine.
-;xopenout		rmb 3		;Jump to xopenout routine.
-;xabortin		rmb 3		;Jump to xabortin routine.
-;xclosein		rmb 3		;Jump to xclosein routine.
-;xcloseout	rmb 3		;Jump to xcloseout routine.
-delay		rmb 3		;Jump to delay routine.
-
-; Next the system variables in the zero page.
-temp		rmb 2		;hex scanning/disasm
-temp2		rmb 2		;Hex scanning/disasm
-temp3 		rmb 2		;Used in Srecords, H command
-;timer		rmb 3		;3 byte timer, incremented every 20ms
-;xpacknum		rmb 1		;Packet number for XMODEM block,
-;xsum		rmb 1		;XMODEM checksum
-;lastok		rmb 1		;flag to indicate last block was OK
-;xcount		rmb 1		;Count of characters in buffer.
-;xmode 		rmb 1		;XMODEM mode, 0 none, 1 out, 2 in.
-disflg		rmb 1
-firqcnt		rmb 1		; FIRQ binary counter ($ff: firq fired, $00: not yet)
-
-; I/O buffers.
-buflen		equ 128		;Length of input line buffer.
-
-		org $100
-;buf0		rmb 128		;Xmodem buffer 0, serial input buffer.
-;buf1		rmb 128		;Xmodem buffer 1, serial output buffer.
-linebuf		rmb buflen	;Input line buffer.
-
-; Next the non zero page system variables.
-oldpc		rmb 2		;Saved pc value for J command. - DO NOT CHANGE
+* Next the non zero page system variables.
+oldpc		rmb 2		;Saved pc value for J command.
 addr		rmb 2		;Address parameter.
 length		rmb 2		;Length parameter.
 
 brkpoints 	equ 8		;Number of settable breakpoints. 
-bpaddr		rmb brkpoints*3	;Address and byte for each break point.
+bpaddr		rmb brkpoints*3 ;Address and byte for each break point.
 stepbp		rmb 3		;Address of P command break point.
 
 sorg		rmb 2		;Origin address of S record entry.
 soffs		rmb 2		;Offset load adrr-addr in record
 
-;oldgetc		rmb 2		;Old getchar address.
-;oldputc		rmb 2		;Old putchar address.
-;oldputcr		rmb 2		;Old putcr address.
-lastterm		rmb 1		;Last terminating character.
-;filler		rmb 1		;Filler at end of XMODEM file.
-;xmcr		rmb 1		;end-of-line characters for XMODEM send.
+oldgetc		rmb 2		;Old getchar address.
+oldputc		rmb 2		;Old putchar address.
+oldputcr	rmb 2		;Old putcr address.
+lastterm	rmb 1		;Last terminating character.
+filler		rmb 1		;Filler at end of XMODEM file.
+xmcr		rmb 1		;end-of-line characters for XMODEM send.
 savesp		rmb 2		;Save sp to restore it on error.
 nxtadd		rmb 2
 
-; Following variables are used by assembler/disassembler.
+* Following variables are used by assembler/disassembler.
 prebyte		rmb 1
 opc1		rmb 1
 opcode 		rmb 1
-postbyte		rmb 1
+postbyte	rmb 1
 amode		rmb 1
 operand		rmb 2		
 mnembuf		rmb 5		;Buffer to store capitalized mnemonic.
-opsize		rmb 1		;Size (in bytes) of extra oeprand (0--2)
+opsize		rmb 1		;SIze (in bytes) of extra oeprand (0--2)
 uncert		rmb 1		;Flag to indicate that op is unknown.
-dpsetting		rmb 2
+dpsetting	rmb 2
 
 endvars		equ *
 
-ramstart		equ $400		;first free RAM address.
-ramtop		equ $8000		;top of RAM.
+ramstart	equ $400	;first free RAM address.
 
-; I/O port addresses
-aciactl		equ $d800		;Control port of ACIA (DUMMY)
-aciasta		equ $d800		;Status port of ACIA (DUMMY)
-aciadat		equ $d000		;Data port of ACIA (FT245RL)
+ramtop  	equ $8000       ;top of RAM.
 
-; ASCII control characters.
+* I/O port addresses
+aciactl		equ $e000	;Control port of ACIA
+aciasta		equ $e000	;Status port of ACIA
+aciadat		equ $e001	;Data port of ACIA
+
+* ASCII control characters.
 SOH		equ 1
 EOT		equ 4
 ACK		equ 6
@@ -126,105 +120,86 @@ NAK		equ 21
 CAN		equ 24
 DEL		equ 127
 
-CASEMASK		equ $DF		; Mask to make lowercase into uppercase.
-FIRQMASK		equ %01000000	; FIRQ bit
+CASEMASK	equ $DF		;Mask to make lowercase into uppercase.
 
-MONSTART		equ $e000
-		
-		; org MONSTART - 2	; monitor size for bootloader
-		; fdb (MONEND - MONSTART)	
-		
-; Monitor ROM starts here.
-		org MONSTART
+* Monitor ROM starts here.
+		org $E400
 
-reset		orcc #$FF		; Disable interrupts.
+reset		orcc #$FF	;Disable interrupts.
 		clra		
-		tfr a,dp		; Set direct page register to 0.
-		clr disflg	; ??
+		tfr a,dp	;Set direct page register to 0.
+		clr disflg
 		lds #ramstart
-		
 		ldx #intvectbl
 		ldu #swi3vec
 		ldb #osvectbl-intvectbl
-		bsr blockmove   	;Initialize interrupt vectors from ROM.
-		
+		bsr blockmove   ;Initialize interrupt vectors from ROM.
 		ldx #osvectbl
-		ldu #getchar
+		ldu #0
 		ldb #endvecs-osvectbl
 		bsr blockmove	;Initialize I/O vectors from ROM.
 		bsr initacia	;Initialize serial port.
-		andcc #$0		;Enable interrupts
-
-; Put the 'saved' registers of the program being monitored on top of the
-; stack. There are 12 bytes on the stack for cc,b,a,dp,x,y,u and pc
-; pc is initialized to $400, the rest to zero.
-
+		andcc #$0	;Enable interrupts
+* Put the 'saved' registers of the program being monitored on top of the
+* stack. There are 12 bytes on the stack for cc,b,a,dp,x,y,u and pc
+* pc is initialized to $400, the rest to zero.
 		ldx #0          
 		tfr x,y
 		ldu #ramstart
 		pshs x,u
 		pshs x,y
-		pshs x,y
-		
-		ldx #oldpc	;Clear the variable area.
+		pshs x,y  
+		ldx #oldpc
 		ldb #endvars-oldpc
 clvar		clr ,x+
 		decb
-		bne clvar		
-			
-;		ldd #$1A03	
-;		std filler	;Set XMODEM filler and end-of-line.
-		
+		bne clvar	;Clear the variable area.	
+		ldd #$1A03	
+		std filler	;Set XMODEM filler and end-of-line.
 		ldx #welcome
 		jsr outcount
-		jsr putcr		;Print a welcome message.      
+		jsr putcr	;Print a welcome message.      
 		jmp cmdline
-
-; Block move routine, from X to U length B. Modifies them all and A. 
-blockmove		lda ,x+
+* Block move routine, from X to U length B. Modifies them all and A. 
+blockmove	lda ,x+
 		sta ,u+
 		decb
 		bne blockmove
 		rts
 
-; Initialize serial communications port, buffers, interrupts.
-initacia		; ldb #$03
-		; stb aciactl
-		; ldb #%00110101
+* Initialize serial communications port, buffers, interrupts.
+initacia	ldb #$03
+		stb aciactl
+		ldb #%00110101
 		rts
 
-; O.S. routine to read a character into B register.
-osgetc		pshs cc
-		orcc #FIRQMASK
-		sync		; Wait for ft245rl interrupt
-		puls cc
+* O.S. routine to read a character into B register.
+osgetc		ldb aciasta
+		bitb #$01
+		beq osgetc
 		ldb aciadat
-		rts		
-
-; O.S. rotuine to check if there is a character ready to be read.
-; ERTURK: The idea is to enable interrupts and see if interrupt
-; 	handler is called.  FYI. If FIRQ fires, the firq handler
-;	will disable interrupt on returning.  
-;
-osgetpoll       	orcc #FIRQMASK	; Disable FIRQ
-		clr firqcnt	; clear counter
-		andcc #~FIRQMASK	; enable interrupts
-		nop
-		orcc #FIRQMASK	; disable interrupts
-		ldb firqcnt	; 0 = false, $ff = yes.
-		; cmpa #$01	; is it set?
-		; beq poltrue	; FIRQ fired once.
-		; clrb
-		rts
-; poltrue		ldb #$ff
-;		rts
-
-; O.S. routine to write the character in the B register.
-osputc		stb aciadat
 		rts
 
-; O.S. routine to read a line into memory at address X, at most B chars
-; long, return actual length in B. Permit backspace editing.
+;O.S. rotuine to check if there is a character ready to be read.
+osgetpoll       ldb aciasta
+		bitb #$01
+		bne poltrue
+		clrb
+		rts
+poltrue		ldb #$ff
+		rts
+
+* O.S. routine to write the character in the B register.
+osputc		pshs a
+putcloop	lda aciasta
+		bita #$02
+		beq putcloop
+		stb aciadat
+		puls a
+		rts
+
+* O.S. routine to read a line into memory at address X, at most B chars
+* long, return actual length in B. Permit backspace editing.
 osgetl		pshs a,x
 		stb temp
 		clra
@@ -234,31 +209,31 @@ osgetl1		jsr getchar
 		beq backsp
 		cmpb #DEL
 		bne osgetl2       
-backsp		tsta                ;Recognize BS and DEL as backspace key.
-		beq osgetl1	;ignore if line already zero length.
+backsp		tsta                  ;Recognize BS and DEL as backspace key.
+		beq osgetl1	      ;ignore if line already zero length.
 		ldb #BS
 		jsr putchar
 		ldb #' '
 		jsr putchar
-		ldb #BS		;Send BS,space,BS. This erases last
-		jsr putchar	;character on most terminals.
-		leax -1,x	      	;Decrement address.
+		ldb #BS		      ;Send BS,space,BS. This erases last
+		jsr putchar           ;character on most terminals.
+		leax -1,x	      ;Decrement address.
 		deca
 		bra osgetl1
 osgetl2		cmpb #CR
 		beq newline
 		cmpb #LF
 		bne osgetl3           ;CR or LF character ends line.
-		;ldb lastterm
-		;cmpb #CR
-		;beq osgetl1	      ;Ignore LF if it comes after CR
+		ldb lastterm
+		cmpb #CR
+		beq osgetl1	      ;Ignore LF if it comes after CR
 		ldb #LF		      
-newline         	stb lastterm
+newline         stb lastterm
 		jsr putcr             
 		tfr a,b               ;Move length to B
 		puls a,x              ;restore registers.
 		rts                   ;<--- Here is the exit point.
-osgetl3         	cmpb #TAB
+osgetl3         cmpb #TAB
 		beq dotab		
 		cmpb #' '
 		blo osgetl1	      ;Ignore control characters.
@@ -278,7 +253,7 @@ dotab		ldb #' '
 		bne dotab
 		bra osgetl1 
 
-; O.S. routine to write a line starting at address X, B chars long.
+* O.S. routine to write a line starting at address X, B chars long.
 osputl		pshs a,b,x
 		tfr b,a
 		tsta
@@ -290,7 +265,7 @@ osputl2		ldb ,x+
 osputl1		puls a,b,x
 		rts
 
-; O.S. routine to terminate a line.
+* O.S. routine to terminate a line.
 oscr		pshs b
 		ldb #CR
 		jsr putchar
@@ -299,116 +274,82 @@ oscr		pshs b
 		puls b
 		rts
 
-; Output a counted string at addr X
-outcount		pshs x,b
+* Output a counted string at addr X
+outcount	pshs x,b
 		ldb ,x+
 		jsr putline
 		puls x,b
 		rts
 
-;timerirq		inc timer+2
-;		bne endirq
-;		inc timer+1
-;		bne endirq
-;		inc timer
-;		rti
-
-; ERTURK: This is the FIRQ handler that indicates FT245RL fifo has
-; 	at least one character waiting.  Handler will disable FIRQ
-;	in return CC to present stalling the 6809.
-; 	FIRQ/KEYBOARD HANDLER
-
-ft245irq		pshs a
-		lda #$ff
-		sta firqcnt
-		lda 1,s		; Get CC from stack
-		ora #FIRQMASK	; Disable FIRQ - otherwise we'll stall the program
-		sta 1,s
-		puls a
+timerirq	inc timer+2
+		bne endirq
+		inc timer+1
+		bne endirq
+		inc timer
+		rti
+aciairq		nop
 endirq		rti
 
-
-; Wait D times 20ms.
-; ERTURK: SiMon6809 does not have a timer, so this is just a dummmy loop.
-;
-osdly		pshs d
-		mul
-		puls d
-		subd #1
-		bne osdly
+* Wait D times 20ms.
+osdly		addd timer+1
+dlyloop		cmpd timer+1
+		bne dlyloop
 		rts		
 
-; This table will be copied to the interrupt vector area in RAM.
-intvectbl		jmp endirq	; swi3
-		jmp endirq	; swi2
-		jmp ft245irq	; firqvec
-		jmp endirq	; irqvec
-		jmp unlaunch	; swi
-		jmp endirq	; nmi
-		;fcb 0,0,0,0,0,0	; ERTURK: my bootloader does indirect jump
-		;jmp xerrhand	; xerr
-		;rts
-		;fcb 0,0
-		jmp expr		; expr
-		jmp asmerr	; asmerr
-		jmp pseudo	; pseudo
-		
-; And this one to the I/O vector table.
-osvectbl		jmp osgetc
+* This table will be copied to the interrupt vector area in RAM.
+intvectbl	jmp endirq
+		jmp endirq
+		jmp timerirq
+		jmp aciairq
+		jmp unlaunch
+		jmp endirq
+		jmp xerrhand
+		jmp expr
+		jmp asmerrvec
+		jmp pseudo
+* And this one to the I/O vector table.
+osvectbl	jmp osgetc
 		jmp osputc
 		jmp osgetl
 		jmp osputl
 		jmp oscr		
 		jmp osgetpoll
-		;jmp xopin
-		;rts
-		;fcb 0,0
-		;jmp xopout
-		;rts
-		;fcb 0,0
-		;jmp xabtin
-		;rts
-		;fcb 0,0
-		;jmp xclsin
-		;rts
-		;fcb 0,0
-		;jmp xclsout
-		;rts
-		;fcb 0,0
+		jmp xopin
+		jmp xopout
+		jmp xabtin
+		jmp xclsin
+		jmp xclsout
 		jmp osdly
-endvecs 		equ *		
+endvecs 	equ *		
 		
-; The J command returns here.
-stakregs        	pshs x		     	;Stack something where the pc comes
-		pshs ccr,a,b,dp,x,y,u 	;Stack the normal registers.
+* The J command returns here.
+stakregs        pshs x		     ;Stack something where the pc comes
+		pshs ccr,b,a,dp,x,y,u ;Stack the normal registers.
 		ldx oldpc	
-		stx 10,s	     		;Stack the old pc value.
+		stx 10,s	     ;Stack the old pc value.
 		bra unlaunch1
-
-; The G and P commands return here through a breakpoint.
-; Registers are already stacked.
-unlaunch		ldd 10,s
+* The G and P commands return here through a breakpoint.
+* Registers are already stacked.
+unlaunch	ldd 10,s
 		subd #1
-		std 10,s	     	;Decrement pc before breakpoint
-unlaunch1		andcc #FIRQMASK	;reenable the interrupts except firq
-		jsr disarm	;Disarm the breakpoints.
-		jsr dispregs 	    
-
-; Command line		 
-cmdline		; jsr xcloseout
+		std 10,s	     ;Decrement pc before breakpoint
+unlaunch1	andcc #$0	     ;reenable the interrupts.
+		jsr disarm	     ;Disarm the breakpoints.
+		jsr dispregs 	     
+cmdline		jsr xcloseout
 		sts savesp
 		ldb #'.'
-		jsr putchar	; Prompt
+		jsr putchar
 		ldx #linebuf
 		ldb #buflen
-                	jsr getline
+                jsr getline
 		tstb
-		beq cmdline	;Ignore line if it is empty
+		beq cmdline          ;Ignore line if it is empty
 		abx
-		clr ,x		;Make location after line zero.
+		clr ,x		     ;Make location after line zero.
 		ldx #linebuf
 		ldb ,x+
-		andb #CASEMASK	;Make 1st char uppercase.
+		andb #CASEMASK	     ;Make 1st char uppercase.
 		subb #'A'            
 		bcs unk
 		cmpb #26
@@ -417,114 +358,107 @@ cmdline		; jsr xcloseout
 		aslb		      ;Index into command table.
 		jmp [b,x]
 
-cmdtab 		fdb asmc,break,calc,dump
+cmdtab 		fdb asm,break,calc,dump
 		fdb enter,find,go,help
 		fdb inp,jump,unk,unk
 		fdb move,unk,unk,prog
-		fdb unk,regs,srec,unk	; ERTURK: Removed TRACE command.
-		fdb unasm,unk,unk,unk	; 	removed xmodem
+		fdb unk,regs,srec,trace
+		fdb unasm,unk,unk,xmodem
 		fdb unk,unk
 
-; Unknown command handling routine.
-unk		; jsr outbyte
-		; jsr xabortin
+* Unknown command handling routine.
+unk		jsr xabortin
 		ldx #unknown
 		jsr outcount
 		jsr putcr
 		jmp cmdline
 
-; Help command
 help		ldx #mhelp   	;Print a help message.
 help1		ldb ,x+
 		beq endhlp
 		lbsr osputc
 		bra help1		
 endhlp		jmp cmdline
-
 mhelp		fcb	CR,LF
 		fcc	'Commands list'
 		fcb	CR,LF
 
-		fcc	'---------------'
+		fcc	'-------------'
 		fcb	CR,LF
 
-	        	fcc 	'Asm       '
+	        fcc 	'Asm    '
 		fcc	'{Aaddr}'
 		fcb	CR,LF
 
-		fcc	'Unasm     '
+		fcc	'Unasm  '
 		fcc	'{U or Uaddr or Uaddr,length}'
 		fcb	CR,LF
 
-		fcc	'Dump      '
+		fcc	'Dump   '
 		fcc	'{D or D<addr> or D<addr>,<length>}'
 		fcb	CR,LF
 
-		fcc	'Enter     '
+		fcc	'Enter  '
 		fcc	'{E or E<addr> or E<addr> <bytes> or E<addr>string}'
 		fcb	CR,LF
 
-		fcc	'Break     '
+		fcc	'Break  '
 		fcc	'{B or B<addr>. B displays, B<addr> sets or clears breakpoint}'
 		fcb	CR,LF
 
-		fcc	'Find      '
+		fcc	'Find   '
 		fcb	"{Faddr bytes or Faddr",34,"ascii",34,"}"
 		fcb	CR,LF
- 
-		fcc	'Go        '
+
+		fcc	'Go     '
 		fcc	'{G or G<addr>}'
 		fcb	CR,LF
 
-		fcc	'Calc      '
-		fcc	'{Chexnum{+|-|*hexnum}}'
+		fcc	'Calc   '
+		fcc	'{Chexnum{+|-hexnum}}'
 		fcb	CR,LF
 
-		fcc	'Inp       '
+		fcc	'Inp    '
 		fcc	'{Iaddr}'
 		fcb	CR,LF
 
-		fcc	'Jump      '
+		fcc	'Jump   '
 		fcc	'{J<addr>}'
 		fcb	CR,LF
 
-		fcc	'Move      '
+		fcc	'Move   '
 		fcc	'{M<addr1>,<addr2>,<lenght>}'
 		fcb	CR,LF
 
-		fcc	'Step Over '
+		fcc	'Prog   '
 		fcc	'{P}'
 		fcb	CR,LF
- 
-		fcc	'Regs      '
+
+		fcc	'Regs   '
 		fcc	'{R or R<letter><hex>}'
 		fcb	CR,LF
 
-		fcc	'Srec      '
+		fcc	'Srec   '
 		fcc	'{SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>}'
 		fcb	CR,LF
 
-		fcc	'Trace     '
+		fcc	'Trace  '
 		fcc	'{T}'
 		fcb	CR,LF
 
-		; fcc	'Xmodem '
-		; fcc	'{XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len}'
-		; fcb	CR,LF
+		fcc	'Xmodem '
+		fcc	'{XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len}'
+		fcb	CR,LF
 
-		fcc	'Help      '
+		fcc	'Help   '
 		fcc	'{H}'
 		fcb	CR,LF,0
 
-; Here are some useful messages.
+
+
+* Here are some useful messages.
 welcome		fcb unknown-welcome-1
-		fcb CR,LF
-		fcc "Welcome to BUGGY version 1.1"
-		fcb CR,LF
-		fcc "        by Lennart Benschop"
-		fcb CR,LF
-		fcc " ported by Erturk Kocalar"
-		fcb CR,LF
+		fcc "Welcome to BUGGY version 1.0"
 unknown		fcb brkmsg-unknown-1
 		fcc "Unknown command"
 brkmsg		fcb clrmsg-brkmsg-1
@@ -535,8 +469,14 @@ fullmsg		fcb smsg-fullmsg-1
 		fcc "Breakpoints full"
 smsg		fcb lastrec-smsg-1
 		fcc "Error in S record"
-lastrec		fcb invmmsg-lastrec-1		; end of S records
+lastrec		fcb xsmsg-lastrec-1
 		fcc "S9030000FC"
+xsmsg		fcb xrmsg-xsmsg-1
+		fcc "Start XMODEM Send"
+xrmsg		fcb xamsg-xrmsg-1
+		fcc "Start XMODEM Receive"
+xamsg		fcb invmmsg-xamsg-1
+		fcc "XMODEM transfer aborted"
 invmmsg		fcb exprmsg-invmmsg-1
 		fcc "Invalid mnemonic"
 exprmsg		fcb modemsg-exprmsg-1
@@ -547,8 +487,8 @@ brmsg		fcb endmsg-brmsg-1
 		fcc "Branch too long"
 endmsg		equ *
 
-; Output hex digit contained in A
-hexdigit 		adda #$90
+* Output hex digit contained in A
+hexdigit 	adda #$90
 		daa
 		adca #$40
 		daa		;It's the standard conversion trick ascii
@@ -556,7 +496,7 @@ hexdigit 		adda #$90
 		jsr putchar
 		rts
 
-; Output contents of A as two hex digits 
+* Output contents of A as two hex digits 
 outbyte		pshs a		
 		lsra
 		lsra
@@ -567,37 +507,42 @@ outbyte		pshs a
 		anda #$0f
 		bra hexdigit
 
-; Output contents of d as four hex digits 
+* Output contents of d as four hex digits 
 outd		pshs b   
 		bsr outbyte
 		puls a
 		bsr outbyte
 		rts
 
-; Skip X past spaces, B is first non-space character.
-skipspace		ldb ,x+
+* Skip X past spaces, B is first non-space character.
+skipspace	ldb ,x+
 		cmpb #' '
 		beq skipspace
 		rts
 
-; Convert ascii hex digit in B register to binary, Z flag set if no hex digit. 
+* Convert ascii hex digit in B register to binary Z flag set if no hex digit. 
 convb		subb #'0'
 		blo convexit
 		cmpb #9
 		bls cb2
-		andb #CASEMASK 	;Make uppercase.
+		andb #CASEMASK ;Make uppercase.
 		subb #7		;If higher than digit 9 it must be a letter.
 		cmpb #9
 		bls convexit
 		cmpb #15
 		bhi convexit
-cb2		andcc #$FB      	;clear zero	
+cb2		andcc #$FB      ;clear zero	
 		rts
-convexit		orcc #$04		; invalid, set Z
+convexit	orcc #$04
 		rts
 
-; Scan for hexadecimal number at address X return in D, Z flag is set it no
-; number found.
+scanexit  	ldd temp
+		leax -1,x
+		tst temp2
+		rts		<-- exit point of scanhex
+
+* Scan for hexadecimal number at address X return in D, Z flag is set it no
+* number found.
 scanhex		clr temp    
 		clr temp+1
 		clr temp2
@@ -620,39 +565,20 @@ scloop		jsr convb
 		ldb ,x+
 		bra scloop
 
-scanexit  	ldd temp
-		leax -1,x
-		tst temp2
-		rts		<-- exit point of scanhex
-
-; Scan parameteres [addr],[size]
-;skipspace	ldb ,x+
-;		cmpb #' '
-;		beq skipspace
-;		rts
-
 scan2parms	std length
 		bsr scanhex
 		beq sp2
 		std addr
-		ldb ,x+		; check if there is space
-		cmpb #' '
-		bne scan2comma	; maybe comma?
-		;bsr skipspace	; scanhex includes "bsr skipspace"
-		bsr scanhex
-		beq sp2
-		subd addr		; calculate size
-		std length
-		rts		; return
-scan2comma	cmpb #','
+		bsr skipspace
+		cmpb #','
 		bne sp2
 		bsr scanhex
 		beq sp2
-scan2cexit	std length				
+		std length				
 sp2 		rts
 
-; Scan two hexdigits at in and convert to byte into A, Z flag if error.
-scanbyte		bsr skipspace
+* Scan two hexdigits at in and convert to byte into A, Z flag if error.
+scanbyte	bsr skipspace
 		bsr convb
 		beq sb1
 		tfr b,a
@@ -669,11 +595,11 @@ scanbyte		bsr skipspace
 sb1		rts
 
 
-; This is the code for the D command, hex/ascii dump of memory
-; Syntax: D or D<addr> or D<addr>,<length>	
+* This is the code for the D command, hex/ascii dump of memory
+* Syntax: D or D<addr> or D<addr>,<length>	
 dump	    	ldx #linebuf+1
-		ldd #$40		; default length
-	        	jsr scan2parms 	;Scan address and length, default length=64
+		ldd #$40	
+	        jsr scan2parms ;Scan address and length, default length=64
 		ldy addr
 dh1		lda #16
 		sta temp+1	
@@ -687,7 +613,7 @@ dh2		lda ,y+		;display row of 16 mem locations as hex
 		lda temp+1
 		cmpa #9
 		bne dh6
-		ldb #'-'		;Do a - after the eighth byte.
+		ldb #'-'	;Do a - after the eighth byte.
 dh6		jsr putchar
 		dec temp+1
 		bne dh2
@@ -699,7 +625,7 @@ dh3		ldb ,y+
 		ldb #'.'            
 dh4		cmpb #DEL
 		blo dh5
-		ldb #'.'		;Convert all nonprintables to .
+		ldb #'.'	;Convert all nonprintables to .
 dh5		jsr putchar
 		deca
 		bne dh3
@@ -711,8 +637,8 @@ dh5		jsr putchar
 		sty addr
 		jmp cmdline
 
-; This is the code for the E command, enter hex bytes or ascii string.
-; Syntax E or E<addr> or E<addr> <bytes> or E<addr>"string"
+* This is the code for the E command, enter hex bytes or ascii string.
+* Syntax E or E<addr> or E<addr> <bytes> or E<addr>"string"
 enter		ldx #linebuf+1
 		jsr scanhex
 		beq ent1
@@ -729,9 +655,9 @@ ent2		ldb #'E'
 		jsr outbyte
 		ldb #' '
 		jsr putchar
-                	ldx #linebuf
+                ldx #linebuf
 		ldb #buflen
-		jsr getline     	;Get the line.
+		jsr getline     ;Get the line.
 		tstb
 		beq skipbyte
 		abx
@@ -740,12 +666,12 @@ ent2		ldb #'E'
 		bsr entline
 		bne ent2
 		jmp cmdline 
-skipbyte		ldd addr
+skipbyte	ldd addr
 		addd #1
 		std addr
 		bra ent2
 
-; Enter a line of hex bytes or ascci string at address X, Z if empty.
+* Enter a line of hex bytes or ascci string at address X, Z if empty.
 entline		jsr skipspace
 		tstb
 		beq entexit
@@ -755,7 +681,7 @@ entline		jsr skipspace
 		beq entasc 
 		leax -1,x
 		ldy addr
-entl2		jsr scanbyte  	;Enter hex digits.
+entl2		jsr scanbyte  ;Enter hex digits.
 		beq entdone
 		sta ,y+
 		bra entl2
@@ -773,8 +699,8 @@ entdone		sty addr
 entexit		orcc #$04
 		rts
 
-; This is the code for the I command, display the contents of an address
-; Syntax: Iaddr
+*This is the code for the I command, display the contents of an address
+* Syntax: Iaddr
 inp		ldx #linebuf+1
 		jsr scanhex
 		tfr d,x
@@ -783,120 +709,97 @@ inp		ldx #linebuf+1
 		jsr putcr
 		jmp cmdline		 
 
-; This is the code for the H command, display result of simple hex expression
-; Syntax Hhexnum{+|-hexnum}
+*This is the code for the H command, display result of simple hex expression
+*Syntax Hhexnum{+|-hexnum}
 calc		ldx #linebuf+1
 		jsr scanhex
-		std temp3		; first digit
+		std temp3
 hexloop		jsr skipspace
 		cmpb #'+'
 		bne hex1
 		jsr scanhex
-		addd temp3	; second digit
-		std temp3		; result back into temp3
+		addd temp3
+		std temp3
 		bra hexloop
 hex1		cmpb #'-'
-		bne hex2
+		bne hexend
 		jsr scanhex
 		comb
 		coma
 		addd #1
 		addd temp3
-		std temp3		; result back into temp3
-		bra hexloop
-hex2		cmpb #'*'
-		bne hexend
-		jsr scanhex
-		std temp2		; hex in temp2
-		lda temp3+1	; low byte of temp3 (previous result)
-		ldb temp2+1	; low byte of temp2
-		mul
-		std temp3		; result in temp3
+		std temp3
 		bra hexloop
 hexend		ldd temp3
 		jsr outd
 		jsr putcr
 		jmp cmdline		
 
-; This is the code for the G command, jump to the program
-; Syntax G or G<addr>
+* This is the code for the G command, jump to the program
+* Syntax G or G<addr>
 go		ldx #linebuf+1
 		jsr scanhex
 		beq launch		
-		std 10,s		;Store parameter in pc location.
-launch		jsr arm         	;Arm the breakpoints.  
-		puls ccr,a,b,dp,x,y,u,pc
+		std 10,s	;Store parameter in pc location.
+launch		jsr arm         ;Arm the breakpoints.  
+		puls ccr,b,a,dp,x,y,u,pc
 
-; This is the code for the J command, run a subroutine.
-; Syntax J<addr>
+* This is the code for the J command, run a subroutine.
+* Syntax J<addr>
 jump		ldx #linebuf+1
 		ldd 10,s	        
-		std oldpc		;Save old pc
+		std oldpc	;Save old pc
 		jsr scanhex
-		std 10,s		;Store parameter in PC location
-jumpprep		tfr s,x
+		std 10,s	;Store parameter in PC location
+		tfr s,x
 		leas -2,s
 		tfr s,u
 		ldb #12		;Move the saved register set 2 addresses
-		jsr blockmove   	;down on the stack.
-		
+		jsr blockmove   ;down on the stack.
 		ldd #stakregs
-		std 12,s		;Prepare subroutine return address.
+		std 12,s	;Prepare subroutine return address.
 		bra launch	;Jump to the routine.
 
 
-; This is the code for the P command, run instruction followed by breakpoint
-; Syntax P
-prog		ldy 10,s		;Get program counter value.
+* This is the code for the P command, run instruction followed by breakpoint
+* Syntax P
+prog		ldy 10,s	;Get program counter value.
 		jsr disdecode	;Find out location past current insn.
-		;pshs d
-		;tfr y,d
-		;lbsr outd
-		;puls d
 		sty stepbp
-		sty oldpc		; save next instr addr
-		cmpu #mnemrts
-		beq jumpprep	; prepare stack right for RTS
-		; jsr arm
-		; lbra cmdline
 		bra launch
 
+* This is the code for the T command, single step trace an instruction.
+* Syntax T
+trace		jsr traceone
+		jsr dispregs
+		jmp cmdline
 
-; This is the code for the T command, single step trace an instruction.
-; Syntax T
-; ERTURK: SiMon6809 does not have a timer, so we can not use this.
-;     	We may be able to use FT245RL for this purpose... Maybe.
-;
-;trace		jsr traceone
-;		jsr dispregs
-;		jmp cmdline
-;
-;traceone		orcc #$50			;Disable the interrupts.
-;		ldd ,s++	
-;		std oldpc			;Remove saved pc from stack.
-;		ldd #traceret
-;		std firqvec+1   		;Adjust timer IRQ vector.
-;		sync			;Synchronize on the next timer interrupt.
-;					;1 cycle
-;		ldx #4441			;3 cycles
-;traceloop	leax -1,x       		;6 cycles\x4441= 39969 cycles.
-;		bne traceloop		;3 cycles/
-;		nop			;2 cycles.
-;		nop			;2 cycles.
-;		nop			;2 cycles.
-;		brn traceret		;3 cycles.
-;		puls x,y,u,a,b,dp,cc,pc 	;17 cycles, total=39999 20ms @ 2MHz
-;					;Pull all registers and execute.
-;					;Is timed such that next timer IRQ
-;					;occurs right after it.
-;traceret		puls cc
-;		pshs x,y,u,a,b,dp,cc	;Store full register set instead of cc.
-;		ldd #timerirq
-;		std firqvec+1		;Restore timer IRQ vector.
-;		jmp [oldpc]
+traceone	orcc #$50	;Disable the interrupts.
+		ldd ,s++	
+		std oldpc	;Remove saved pc from stack.
+		ldd #traceret
+		std firqvec+1   ;Adjust timer IRQ vector.
+		sync		;Synchronize on the next timer interrupt.
+				;1 cycle
+		ldx #4441	;3 cycles
+traceloop	leax -1,x       ;6 cycles\x4441= 39969 cycles.
+		bne traceloop	;3 cycles/
+		nop		;2 cycles.
+		nop		;2 cycles.
+		nop		;2 cycles.
+		brn traceret	;3 cycles.
+		puls x,y,u,a,b,dp,cc,pc ;17 cycles, total=39999 20ms @ 2MHz
+					;Pull all registers and execute.
+					;Is timed such that next timer IRQ
+					;occurs right after it.
+traceret	puls cc
+		pshs x,y,u,a,b,dp,cc;Store full register set instead of cc.
+		ldd #timerirq
+		std firqvec+1	;Restore timer IRQ vector.
+		jmp [oldpc]
 				
 
-; Display the contents of 8 bit register, name in B, contents in A
+* Display the contents of 8 bit register, name in B, contents in A
 disp8		jsr putchar
 		ldb #'='
 		jsr putchar
@@ -905,7 +808,7 @@ disp8		jsr putchar
 		jsr putchar
 		rts
 
-; Display the contents of 16 bit register, name in B, contents in Y
+* Display the contents of 16 bit register, name in B, contents in Y
 disp16		jsr putchar
 		ldb #'='
 		jsr putchar
@@ -915,69 +818,46 @@ disp16		jsr putchar
 		jsr putchar
 		rts
 
-; Display the contents of the registers and disassemble instruction at
-; PC location.
-regid		fcb 9,"EFHINZVC "
-
-dispregs		ldx #regid
-		jsr outcount
-		ldb #'A'		; A
-		lda 3,s
-		bsr disp8
-		ldb #'B'		; B
-		lda 4,s
-		bsr disp8
-		ldb #'D'		; DP
-		jsr putchar
-		ldb #'P'
-		lda 5,s
-		bsr disp8
-
-		ldb #'X'
+* Display the contents of the registers and disassemble instruction at
+* PC location.
+dispregs	ldb #'X'
 		ldy 6,s		;Note that there's one return address on
 		bsr disp16	;stack so saved register offsets are 
-		ldb #'Y'		;incremented by 2.
+		ldb #'Y'	;inremented by 2.
 		ldy 8,s
 		bsr disp16
-		ldb #'U'		; U
+		ldb #'U'
 		ldy 10,s
 		bsr disp16
-		ldb #'S'		; S
+		ldb #'S'
 		tfr s,y
-		leay 14,y		;S of the running program is 12 higher,
+		leay 14,y	;S of the running program is 12 higher,
 				;because regs are not stacked when running.
 		bsr disp16
-
-		; new line
-		jsr putcr
-
-		ldb #8		; CC
+		ldb #'A'
+		lda 3,s
+		bsr disp8
+		ldb #'B'
+		lda 4,s
+		bsr disp8
+		ldb #'D'
+		lda 5,s
+		bsr disp8
+		ldb #'C'
 		lda 2,s
-loopcc		pshs b
-		clrb
-		asla
-		rolb
-		addb #$30		; spit out each bit as 1 or 0.
-		jsr putchar
-		puls b
-		decb
-		; cmpb #$00
-		bne loopcc
-		ldb #' '
-		jsr putchar
-		; bsr disp8
-
+		bsr disp8
+		jsr putcr
 		ldb #'P'
 		ldy 12,s
 		bsr disp16
 		jsr disdecode
-		jsr disdisp       	;Disassemble instruction at PC
+		jsr disdisp       ;Disassemble instruction at PC
 		jsr putcr
 		rts
 
 
-; This is the code for the R command, display or alter the registers.
-; Syntax R or R<letter><hex>	
+* This is the code for the R command, display or alter the registers.
+* Syntax R or R<letter><hex>	
 regs		ldx #linebuf+1
 		jsr skipspace
 		tstb
@@ -988,7 +868,7 @@ setreg		ldy #regtab
 		clra
 		andb #CASEMASK	;Make letter uppercase.
 sr1		tst ,y
-		lbeq unk		;At end of register tab, unknown reg
+		lbeq unk	;At end of register tab, unknown reg
 		cmpb ,y+
 		beq sr2		;Found the register?
 		inca
@@ -1000,7 +880,7 @@ sr2		pshs a
 		cmpa #4
 		bcc sr3		
 		ldb 1,s		;It's 8 bit. 		
-		leas 3,s		;Remove temp stuff from stack.
+		leas 3,s	;Remove temp stuff from stack.
 		stb a,s		;Store it in the reg on stack.
 		jmp cmdline
 sr3		cmpa #8
@@ -1022,8 +902,8 @@ sr4		puls u		;It's the stack pointer.
 		
 regtab 		FCC "CABDXYUPS "
 
-; Disarm the breakpoints, this is replace the SWI instructions with the
-; original byte.
+* Disarm the breakpoints, this is replace the SWI instructions with the
+* original byte.
 disarm		ldx #bpaddr
 		lda #brkpoints+1
 disarm1		ldu ,x++        
@@ -1034,30 +914,30 @@ disarm1		ldu ,x++
 disarm2		deca
 		bne disarm1
 		ldu #0
-		stu -3,x		;Clear the step breakpoint.
+		stu -3,x	;Clear the step breakpoint.
 		rts
 
-; Arm the breakponts, this is replace the byte at the breakpoint address
-; with an SWI instruction.
-arm		ldx #bpaddr+brkpoints*3	; 3 for P command
-		lda #brkpoints+1  	;Arm them in reverse order of disarming.
-arm1		ldu ,x       	;Get address in u.
+* Arm the breakponts, this is replace the byte at the breakpoint address
+* with an SWI instruction.
+arm		ldx #bpaddr+brkpoints*3
+		lda #brkpoints+1  ;Arm them in reverse order of disarming.
+arm1		ldu ,x       ;Get address in u.
 		beq arm2
 		ldb ,u
 		stb 2,x
-		cmpu 12,s      	;Compare to program counter location
+		cmpu 12,s      ;Compare to program counter location
 		beq arm2
-		ldb #$3F		; swi
-		stb ,u	       	;Store SWI instruction if not equal.
+		ldb #$3F
+		stb ,u	       ;Store SWI instruction if not equal.
 arm2		leax -3,x
 		deca
 		bne arm1		
 		rts
 
-; This is the code for the break command, set, clear display breakpoints.
-; Syntax B or B<addr>. B displays, B<addr> sets or clears breakpoint.
+* This is the code for the break command, set, clear display breakpoints.
+* Syntax B or B<addr>. B displays, B<addr> sets or clears breakpoint.
 break		lda #brkpoints
-		sta temp2+1     	;Store number of breakpoints to visit.
+		sta temp2+1     ;Store number of breakpoints to visit.
 		ldx #linebuf+1
 		jsr scanhex
 		beq dispbp	;No number then display breakpoints
@@ -1099,7 +979,7 @@ dbp2		leax 3,x
 		jsr putcr
 		jmp cmdline
 
-; Scan hex byte into a and add it to check sum in temp2+1
+* Scan hex byte into a and add it to check sum in temp2+1
 addchk		jsr scanbyte
 		lbeq srecerr
 		tfr a,b
@@ -1107,8 +987,8 @@ addchk		jsr scanbyte
 		stb temp2+1
 		rts
 
-; This is the code for the S command, the Motorola S records entry.
-; Syntax SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>
+* This tis the code for the S command, the Motorola S records entry.
+* Syntax SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>
 srec		ldx #linebuf+1
 		ldb ,x+
 		andb #CASEMASK
@@ -1137,7 +1017,7 @@ readrec		clr temp2+1	;clear checksum.
 		ldu soffs
 		bne rr1
 		pshs d		;Sorg is nonzero and soffs is zero, now
-		subd sorg		;set soffs
+		subd sorg	;set soffs
 		std soffs
 		puls d
 rr1		subd soffs	;Subtract the address offset.
@@ -1153,14 +1033,14 @@ endrec		inc temp2+1	;Check checksum.
 		lbeq cmdline	;Was it no S9 record?
 		cmpy #0
 		beq endrec1 
-		sty 10,s		;Store address into program counter.
+		sty 10,s	;Store address into program counter.
 endrec1		clra
 		clrb
-		std sorg		;Reset sorg, next S loads will be normal.
+		std sorg	;Reset sorg, next S loads will be normal.
 		std soffs
 		jmp cmdline	
-srecerr		; jsr xabortin
-		ldx #smsg		;Error in srecord, display message.
+srecerr		jsr xabortin
+		ldx #smsg	;Error in srecord, display message.
 		jsr outcount
 		jsr putcr
 		jmp cmdline
@@ -1170,17 +1050,16 @@ setsorg		jsr scanhex	;Set S record origin.
 		clrb
 		std soffs
 		jmp cmdline
-		
-; Send a memory region as S-records.
-sendrec		ldd #$100		;Scan address and length parameter.
+* Send a memory region as S-records.
+sendrec		ldd #$100	;Scan address and length parameter.
 		jsr scan2parms				
 		ldd sorg
-		beq ss1		; not zero, so user defined origin
+		beq ss1
 		ldd addr
 		subd sorg
-		std soffs		;Compute offset for origin.
+		std soffs	;Compute offset for origin.
 ss1		ldd length	
-		beq endss		;All bytes sent?
+		beq endss	;All bytes sent?
 		cmpd #16
 		blo ss2         
 		ldb #16		;If more than 16 left, then send 16.
@@ -1218,9 +1097,8 @@ endss		ldx #lastrec
 		jsr outcount
 		jsr putcr
 		jmp cmdline
-
-; Output byte in register B and add it into check sum at temp+1
-checkout		pshs a
+* Output byte in register B and add it into check sum at temp+1
+checkout	pshs a
 		tfr b,a
 		addb temp+1
 		stb temp+1
@@ -1228,41 +1106,35 @@ checkout		pshs a
 		puls a
 		rts
 
-; This is the code for the M command, move memory region.
-; Syntax: Maddr1,addr2,length
+* This is the code for the M command, move memory region.
+* Syntax: Maddr1,addr2,length
 move		ldx #linebuf+1
 		jsr scanhex
 		lbeq unk
-		std temp3		; start
+		std temp3
 		jsr skipspace
 		cmpb #','
 		lbne unk
 		jsr scanhex
 		lbeq unk
-		tfr d,u		; destination
+		tfr d,u
 		jsr skipspace
 		cmpb #','
 		lbne unk
 		jsr scanhex
-		lbeq unk		; length
-		tfr d,y		; Read the argument separated by commas
-		ldx temp3		; src addr to x, dest addr to u, length to y
-			        	; Don't tolerate syntax deviations.
-		ldb #'.'		; progress character
+		lbeq unk
+		tfr d,y		;Read the argument separated by commas
+		ldx temp3	;src addr to x, dest addr to u, length to y
+			        ;Don't tolerate syntax deviations.
 mvloop		lda ,x+
-		sta ,u
-mvloopee		cmpa ,u		; Verify (write to eeprom)
-		bne mvloopee
-		jsr putchar	; Progress.		
-		leau 1,u		; increment u
+		sta ,u+
 		leay -1,y
-		bne mvloop	; Perform the block move.
-		jsr putcr		; enter		
+		bne mvloop	;Perform the block move.
 		jmp cmdline
 		
 
-; This is the code for the F command, find byte/ascii string in memory.
-; Syntax: Faddr bytes or Faddr "ascii"
+* This is the code for the F command, find byte/ascii string in memory.
+* Syntax: Faddr bytes or Faddr "ascii"
 find		ldx #linebuf+1
 		jsr scanhex
 		tfr d,y		;Scan the start address.
@@ -1271,17 +1143,17 @@ find		ldx #linebuf+1
 		bne findhex
 		ldu #linebuf	;Quote found, so scan for quoted string.
 		clra
-fstrloop		ldb ,x+
+fstrloop	ldb ,x+
 		beq startsrch	;End of line without final quote.
 		cmpb #'"'
-		beq startsrch   	;End quote found
+		beq startsrch   ;End quote found
 		stb ,u+
 		inca
 		bra fstrloop		 		
 findhex		ldu #linebuf	;Convert string of hex bytes.
-		leax -1,x		;String will be stored at start of line
+		leax -1,x	;String will be stored at start of line
 		clra		;buffer and may overwrite part of the
-fhexloop		pshs a		;already converted string.
+fhexloop	pshs a		;already converted string.
 		jsr scanbyte
 		tfr a,b
 		puls a
@@ -1289,27 +1161,27 @@ fhexloop		pshs a		;already converted string.
 		stb ,u+
 		inca
 		bra fhexloop				
-startsrch		tsta		;Start searching, start addr in Y, 
-		                	;string starts at linebuf, length A
+startsrch	tsta		;Start searching, start addr in Y, 
+		                ;string starts at linebuf, length A
 		lbeq cmdline	;Quit with zero length string.
 		clr temp3
 		sta temp3+1
-srchloop		tfr y,x
+srchloop	tfr y,x
 		lda temp3+1
-		cmpx #$e000	; I/O upper limit 
+		cmpx #$e100
 		bcc srch1
 		leax a,x
-		cmpx #$d000	;Stop at I/O addresses.
+		cmpx #$e000	;Stop at I/O addresses.
 		lbcc cmdline
 srch1		tfr y,x
 		ldu #linebuf
 srch2		ldb ,x+
 		cmpb ,u+
-		bne srch3       	;Not equal, try next address.
+		bne srch3       ;Not equal, try next address.
 		deca 
 		bne srch2
 		tfr y,d
-		jsr outd		;String found
+		jsr outd	;String found
 		jsr putcr
 		inc temp3
 		lda temp3
@@ -1318,351 +1190,352 @@ srch2		ldb ,x+
 srch3		leay 1,y
 		bra srchloop
 
-; Send the contents of the xmodem buffer and get it acknowledged, zero flag
-; is set if transfer aborted.
-;xsendbuf		ldb #SOH		
-;		jsr osputc	;Send SOH
-;		ldb xpacknum
-;		jsr osputc	;Send block number.
-;		comb
-;		jsr osputc      	;and its complement.
-;		clr xsum
-;		lda #128
-;		ldx #buf0
-;xsloop		ldb ,x
-;	        	addb xsum
-;		stb xsum	
-;		ldb ,x+
-;		jsr osputc
-;		deca
-;		bne xsloop      	;Send the buffer contents.
-;		ldb xsum
-;		jsr osputc	;Send the check sum
-;waitack		jsr osgetc
-;		cmpb #CAN
-;		beq xsabt		;^X for abort.
-;		cmpb #NAK        
-;		beq xsendbuf	;Send again if NAK
-;		cmpb #ACK
-;		bne waitack
-;		inc xpacknum
-;xsok		andcc #$fb	;Clear zero flag after ACK		
-;xsabt		rts
+* Send the contents of the xmodem buffer and get it acknowledged, zero flag
+* is set if transfer aborted.
+xsendbuf	ldb #SOH		
+		jsr osputc	;Send SOH
+		ldb xpacknum
+		jsr osputc	;Send block number.
+		comb
+		jsr osputc      ;and its complement.
+		clr xsum
+		lda #128
+		ldx #buf0
+xsloop		ldb ,x
+	        addb xsum
+		stb xsum	
+		ldb ,x+
+		jsr osputc
+		deca
+		bne xsloop      ;Send the buffer contents.
+		ldb xsum
+		jsr osputc	;Send the check sum
+waitack		jsr osgetc
+		cmpb #CAN
+		beq xsabt	;^X for abort.
+		cmpb #NAK        
+		beq xsendbuf	;Send again if NAK
+		cmpb #ACK
+		bne waitack
+		inc xpacknum
+xsok		andcc #$fb	;Clear zero flag after ACK		
+xsabt		rts
 		
-; Start an XMODEM send session.
-;xsendinit		ldb #1
-;		stb xpacknum	;Initialize block number.
-;waitnak		jsr osgetc
-;		cmpb #CAN
-;		beq xsabt      	;If ^X exit with zero flag.
-;		cmpb #NAK
-;		beq xsok        
-;		bra waitnak    	;Wait until NAK received.
-;
-; Send ETX and wait for ack.
-;xsendeot		ldb #EOT
-;		jsr osputc
-;waitack2		jsr osgetc
-;		cmpb #CAN
-;		beq xsabt
-;		cmpb #NAK
-;		beq xsendeot
-;		cmpb #ACK
-;		beq xsok
-;		bra waitack2
-;
-; Read character into B with a timeout of A seconds,  Carry set if timeout.
-;gettimeout	asla
-;		ldb #50
-;		mul
-;		tfr b,a
-;		adda timer+2
-;gt1		jsr osgetpoll
-;		tstb
-;		bne gtexit
-;		cmpa timer+2
-;		bne gt1		
-;		orcc #$1
-;		rts
-;gtexit		jsr osgetc
-;		andcc #$fe
-;		rts
-;
-; Wait until line becomes quiet.
-;purge		lda #3
-;		jsr gettimeout
-;		bcc purge
-;		rts
-;
-; Receive an XMODEM block and wait till it is OK, Z set if etx.				
-;xrcvbuf		lda #3
-;		tst lastok				
-;		beq sendnak
-;		ldb #ACK
-;		jsr osputc	;Send an ack.
-;		lda #5         
-;		bra startblock
-;sendnak		ldb #NAK
-;		jsr osputc	;Send a NAK
-;startblock	clr lastok
-;		bsr gettimeout   
-;		lda #3
-;		bcs sendnak	;Keep sending NAKs when timed out.
-;		cmpb #EOT		
-;		beq xrcveot	;End of file reached, acknowledge EOT.
-;		cmpb #SOH
-;		bne purgeit	;Not, SOH, bad block.
-;		lda #1
-;		bsr gettimeout	
-;		bcs purgeit				
-;		cmpb xpacknum	;Is it the right block?
-;		beq xr1
-;		incb
-;		cmpb xpacknum   	;Was it the previous block.
-;		bne purgeit	
-;		inc lastok
-;xr1		stb xsum
-;		lda #1
-;		bsr gettimeout
-;		bcs purgeit
-;		comb
-;		cmpb xsum       	;Is the complement of the block number OK
-;		bne purgeit		
-;		ldx #buf0
-;		clr xsum
-;xrloop		lda #1
-;		bsr gettimeout  
-;		bcs purgeit
-;		stb ,x+
-;		addb xsum
-;		stb xsum
-;		cmpx #buf0+128
-;		bne xrloop       	;Get the data bytes.		
-;		lda #1
-;		bsr gettimeout
-;		bcs purgeit
-;		cmpb xsum
-;		bne purgeit	;Check the check sum.
-;		tst lastok
-;		bne xrcvbuf	;Block was the previous block, get next one
-;		inc lastok
-;		inc xpacknum
-;		andcc #$fb
-;		rts
-;purgeit		jsr purge
-;		bra sendnak		
-;xrcveot		lda #3		;EOT was received.
-;		ldb #ACK
-;ackloop		jsr osputc
-;		deca
-;		bne ackloop     ;Send 3 acks in a row.
-;		rts
-;
-;
-;savevecs		ldx getchar+1
-;		stx oldgetc
-;		ldx putchar+1
-;		stx oldputc
-;		ldx putcr+1
-;		stx oldputcr
-;		clr lastterm
-;		rts
-;
-;rstvecs		ldx oldgetc
-;		stx getchar+1
-;		ldx oldputc
-;		stx putchar+1
-;		ldx oldputcr
-;		stx putcr+1
-;		clr lastterm
-;		rts	
-;
-; O.S. routine to open input through XMODEM transfer.
-;xopin		pshs x,a,b
-;		ldx #xsmsg
-;		jsr outcount
-;		jsr putcr		;Display message to start XMODEM send.
-;		bsr savevecs
-;		ldx #noop
-;		stx putchar+1	;Disable character output.
-;		ldx #xgetc
-;		stx getchar+1	;
-;		clr lastok
-;		clr xcount
-;		lda #1
-;		sta xpacknum
-;		inca
-;		sta xmode		;set xmode to 2.
-;		puls x,a,b,pc
-;
-; O.S. routine to open output through XMODEM transfer.
-;xopout		pshs x,a,b
-;		bsr savevecs
-;		ldx #xrmsg
-;		jsr outcount	;Display message to start XMODEM receive
-;		jsr putcr
-;		ldx #xputc
-;		stx putchar+1
-;		ldx #xputcr
-;		stx putcr+1
-;		jsr xsendinit
-;		lbeq xerror
-;		clr xcount
-;		lda #1
-;		sta xmode
-;		puls x,a,b,pc
-;		
-; O.S. routine to abort input through XMODEM transfer.
-;xabtin		lda xmode
-;		cmpa #2
-;		bne xclsend
-;		jsr purge
-;		ldb #CAN
-;		lda #8
-;xabtloop		jsr osputc
-;		deca
-;		bne xabtloop	;Send 8 CAN characters to kill transfer.
-;		bsr rstvecs
-;		clr xmode
-;		ldx #xamsg
-;		jsr outcount
-;		jsr putcr		;Send diagnostic message.
-;		rts		
-;
-; O.S. routine to close output through XMODEM transfer.
-;xclsout		lda xmode 
-;		cmpa #1
-;		bne xclsend
-;		tst xcount
-;		beq xclsdone
-;		lda #128
-;		suba xcount
-;xclsloop		ldb filler
-;		bsr xputc   
-;		deca
-;		bne xclsloop	;Transfer filler chars to force block out.
-;xclsdone		jsr xsendeot	;Send EOT
-;		lbeq xerror
-;		jsr rstvecs
-;		clr xmode						
-;xclsend		rts	
-;
-; O.S. routine to close input through XMODEM, by gobbling up the remaining
-; bytes.
-;xclsin		ldb xmode
-;		cmpb #2
-;		bne xclsend
-;		jsr putchar
-;		bra xclsin
-;
-; putchar routine for XMODEM 
-;xputc		pshs x,a,b
-;		lda xcount
-;		inc xcount
-;		ldx #buf0
-;		stb a,x		;Store character in XMODEM buffer.
-;		cmpa #127
-;		bne xputc1	;is buffer full?
-;		clr xcount
-;		pshs y,u
-;		jsr xsendbuf	
-;		lbeq xerror
-;		puls y,u
-;xputc1		puls x,a,b,pc			
-;
-; putcr routine for XMODEM
-;xputcr		pshs b
-;		ldb xmcr
-;		bitb #2
-;		beq xputcr1
-;		ldb #CR
-;		bsr xputc
-;xputcr1		ldb xmcr
-;		bitb #1
-;		beq xputcr2
-;		ldb #LF
-;		bsr xputc		
-;xputcr2		puls b
-;		rts
-;
-; getchar routine for XMODEM
-;xgetc		pshs x,a
-;		tst xcount	;No characters left?
-;		bne xgetc1
-;		pshs y,u
-;		jsr xrcvbuf	;Receive new block.
-;		puls y,u
-;		beq xgetcterm	;End of input?		
-;		lda #128
-;		sta xcount
-;xgetc1		lda xcount
-;		nega
-;		ldx #buf0+128
-;		ldb a,x		;Get character from buffer
-;		dec xcount
-;		puls x,a,pc		
-;xgetcterm		jsr rstvecs
-;		clr xmode
-;		ldb filler
-;		puls x,a,pc
-;		
-;xerror		jsr rstvecs	;Restore I/O vectors
-;		clr xmode
-;		ldx #xamsg
-;		jsr outcount
-;		jsr putcr
-;		jmp xerrvec
-;	
-;xerrhand		lds savesp
-;		jmp cmdline
-;
-; This is the code for the X command, various XMODEM related commands.
-; Syntax: XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len
-;xmodem		ldx #linebuf+1
-;		lda ,x+
-;		anda #CASEMASK	;Convert to uppercase.
-;		cmpa #'X'
-;		beq xeq	
-;		cmpa #'L'
-;		beq xload
-;		cmpa #'O'
-;		beq xopts
-;		cmpa #'S'
-;		lbne unk
-;		lda ,x
-;		anda #CASEMASK
-;		cmpa #'S'
-;		beq xss
-;		ldd #$100		;XSaddr,len command.
-;		jsr scan2parms	;Send binary through XMODEM
-;		jsr xopenout
-;		ldu addr
-;		ldy length
-;xsbinloop		ldb ,u+
-;		jsr putchar		
-;		leay -1,y
-;		bne xsbinloop 	;Send all the bytes through XMODEM.
-;		jmp cmdline
-;xss		leax 1,x	     	;XSSaddr,len command.
-;		jsr xopenout	;Send Srecords through XMODEM
-;		jmp sendrec		
-;xload		jsr scanhex	;XLaddr command
-;		tfr d,y		;Load binary through XMODEM
-;		jsr xopenin
-;xlodloop		jsr getchar
-;		tst xmode	     	;File ended? then done
-;		lbeq cmdline					
-;		stb ,y+
-;		bra xlodloop
-;xeq		jsr xopenin	;XX command
-;		jmp cmdline	;Execute commands received from XMODEM
-;xopts		ldd #$1a
-;		jsr scan2parms
-;		lda addr+1
-;		sta xmcr
-;		lda length+1
-;		sta filler
-;		jmp cmdline
+* Start an XMODEM send session.
+xsendinit	ldb #1
+		stb xpacknum	;Initialize block number.
+waitnak		jsr osgetc
+		cmpb #CAN
+		beq xsabt      ;If ^X exit with zero flag.
+		cmpb #NAK
+		beq xsok        
+		bra waitnak    ;Wait until NAK received.
+
+* Send ETX and wait for ack.
+xsendeot	ldb #EOT
+		jsr osputc
+waitack2	jsr osgetc
+		cmpb #CAN
+		beq xsabt
+		cmpb #NAK
+		beq xsendeot
+		cmpb #ACK
+		beq xsok
+		bra waitack2
+
+* Read character into B with a timeout of A seconds,  Carry set if timeout.
+gettimeout	asla
+		ldb #50
+		mul
+		tfr b,a
+		adda timer+2
+gt1		jsr osgetpoll
+		tstb
+		bne gtexit
+		cmpa timer+2
+		bne gt1		
+		orcc #$1
+		rts
+gtexit		jsr osgetc
+		andcc #$fe
+		rts
+
+* Wait until line becomes quiet.
+purge		lda #3
+		jsr gettimeout
+		bcc purge
+		rts
+
+* Receive an XMODEM block and wait till it is OK, Z set if etx.				
+xrcvbuf		lda #3
+		tst lastok				
+		beq sendnak
+		ldb #ACK
+		jsr osputc	;Send an ack.
+		lda #5         
+		bra startblock
+sendnak		ldb #NAK
+		jsr osputc	;Send a NAK
+startblock	clr lastok
+		bsr gettimeout   
+		lda #3
+		bcs sendnak	;Keep sending NAKs when timed out.
+		cmpb #EOT		
+		beq xrcveot	;End of file reached, acknowledge EOT.
+		cmpb #SOH
+		bne purgeit	;Not, SOH, bad block.
+		lda #1
+		bsr gettimeout	
+		bcs purgeit				
+		cmpb xpacknum	;Is it the right block?
+		beq xr1
+		incb
+		cmpb xpacknum   ;Was it the previous block.
+		bne purgeit	
+		inc lastok
+xr1		stb xsum
+		lda #1
+		bsr gettimeout
+		bcs purgeit
+		comb
+		cmpb xsum       ;Is the complement of the block number OK
+		bne purgeit		
+		ldx #buf0
+		clr xsum
+xrloop		lda #1
+		bsr gettimeout  
+		bcs purgeit
+		stb ,x+
+		addb xsum
+		stb xsum
+		cmpx #buf0+128
+		bne xrloop       ;Get the data bytes.		
+		lda #1
+		bsr gettimeout
+		bcs purgeit
+		cmpb xsum
+		bne purgeit	;Check the check sum.
+		tst lastok
+		bne xrcvbuf	;Block was the previous block, get next one
+		inc lastok
+		inc xpacknum
+		andcc #$fb
+		rts
+purgeit		jsr purge
+		bra sendnak		
+xrcveot		lda #3		;EOT was received.
+		ldb #ACK
+ackloop		jsr osputc
+		deca
+		bne ackloop     ;Send 3 acks in a row.
+		rts
+
+
+savevecs	ldx getchar+1
+		stx oldgetc
+		ldx putchar+1
+		stx oldputc
+		ldx putcr+1
+		stx oldputcr
+		clr lastterm
+		rts
+
+rstvecs		ldx oldgetc
+		stx getchar+1
+		ldx oldputc
+		stx putchar+1
+		ldx oldputcr
+		stx putcr+1
+		clr lastterm
+		rts	
+
+* O.S. routine to open input through XMODEM transfer.
+xopin		pshs x,a,b
+		ldx #xsmsg
+		jsr outcount
+		jsr putcr	;Display message to start XMODEM send.
+		bsr savevecs
+		ldx #noop
+		stx putchar+1	;Disable character output.
+		ldx #xgetc
+		stx getchar+1	;
+		clr lastok
+		clr xcount
+		lda #1
+		sta xpacknum
+		inca
+		sta xmode	;set xmode to 2.
+		puls x,a,b,pc
+
+* O.S. routine to open output through XMODEM transfer.
+xopout		pshs x,a,b
+		bsr savevecs
+		ldx #xrmsg
+		jsr outcount	;Display message to start XMODEM receive
+		jsr putcr
+		ldx #xputc
+		stx putchar+1
+		ldx #xputcr
+		stx putcr+1
+		jsr xsendinit
+		lbeq xerror
+		clr xcount
+		lda #1
+		sta xmode
+		puls x,a,b,pc
+		
+
+* O.S. routine to abort input through XMODEM transfer.
+xabtin		lda xmode
+		cmpa #2
+		bne xclsend
+		jsr purge
+		ldb #CAN
+		lda #8
+xabtloop	jsr osputc
+		deca
+		bne xabtloop	;Send 8 CAN characters to kill transfer.
+		bsr rstvecs
+		clr xmode
+		ldx #xamsg
+		jsr outcount
+		jsr putcr	;Send diagnostic message.
+		rts		
+
+* O.S. routine to close output through XMODEM transfer.
+xclsout		lda xmode 
+		cmpa #1
+		bne xclsend
+		tst xcount
+		beq xclsdone
+		lda #128
+		suba xcount
+xclsloop	ldb filler
+		bsr xputc   
+		deca
+		bne xclsloop	;Transfer filler chars to force block out.
+xclsdone	jsr xsendeot	;Send EOT
+		lbeq xerror
+		jsr rstvecs
+		clr xmode						
+xclsend		rts	
+
+* O.S. routine to close input through XMODEM, by gobbling up the remaining
+* bytes.
+xclsin		ldb xmode
+		cmpb #2
+		bne xclsend
+		jsr putchar
+		bra xclsin
+
+* putchar routine for XMODEM 
+xputc		pshs x,a,b
+		lda xcount
+		inc xcount
+		ldx #buf0
+		stb a,x		;Store character in XMODEM buffer.
+		cmpa #127
+		bne xputc1	;is buffer full?
+		clr xcount
+		pshs y,u
+		jsr xsendbuf	
+		lbeq xerror
+		puls y,u
+xputc1		puls x,a,b,pc			
+
+* putcr routine for XMODEM
+xputcr		pshs b
+		ldb xmcr
+		bitb #2
+		beq xputcr1
+		ldb #CR
+		bsr xputc
+xputcr1		ldb xmcr
+		bitb #1
+		beq xputcr2
+		ldb #LF
+		bsr xputc		
+xputcr2		puls b
+		rts
+
+* getchar routine for XMODEM
+xgetc		pshs x,a
+		tst xcount	;No characters left?
+		bne xgetc1
+		pshs y,u
+		jsr xrcvbuf	;Receive new block.
+		puls y,u
+		beq xgetcterm	;End of input?		
+		lda #128
+		sta xcount
+xgetc1		lda xcount
+		nega
+		ldx #buf0+128
+		ldb a,x		;Get character from buffer
+		dec xcount
+		puls x,a,pc		
+xgetcterm	jsr rstvecs
+		clr xmode
+		ldb filler
+		puls x,a,pc
+		
+xerror		jsr rstvecs	;Restore I/O vectors
+		clr xmode
+		ldx #xamsg
+		jsr outcount
+		jsr putcr
+		jmp xerrvec
+	
+xerrhand	lds savesp
+		jmp cmdline
+
+* This is the code for the X command, various XMODEM related commands.
+* Syntax: XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len
+xmodem		ldx #linebuf+1
+		lda ,x+
+		anda #CASEMASK	;Convert to uppercase.
+		cmpa #'X'
+		beq xeq	
+		cmpa #'L'
+		beq xload
+		cmpa #'O'
+		beq xopts
+		cmpa #'S'
+		lbne unk
+		lda ,x
+		anda #CASEMASK
+		cmpa #'S'
+		beq xss
+		ldd #$100            ;XSaddr,len command.
+		jsr scan2parms       ;Send binary through XMODEM
+		jsr xopenout
+		ldu addr
+		ldy length
+xsbinloop	ldb ,u+
+		jsr putchar		
+		leay -1,y
+		bne xsbinloop 	     ;Send all the bytes through XMODEM.
+		jmp cmdline
+xss		leax 1,x	     ;XSSaddr,len command.
+		jsr xopenout	     ;Send Srecords through XMODEM
+		jmp sendrec		
+xload		jsr scanhex	     ;XLaddr command
+		tfr d,y		     ;Load binary through XMODEM
+		jsr xopenin
+xlodloop	jsr getchar
+		tst xmode	     ;File ended? then done
+		lbeq cmdline					
+		stb ,y+
+		bra xlodloop
+xeq		jsr xopenin	     ;XX command
+		jmp cmdline	     ;Execute commands received from XMODEM
+xopts		ldd #$1a
+		jsr scan2parms
+		lda addr+1
+		sta xmcr
+		lda length+1
+		sta filler
+		jmp cmdline
 	
 * mnemonics table, ordered alphabetically.
 * 5 bytes name, 1 byte category, 2 bytes opcode, 8 bytes total.
@@ -2035,7 +1908,7 @@ mnemjsr         fcc "JSR  "
                 fcc "RTI  "
 		fcb 0
 		fdb $3b
-mnemrts         fcc "RTS  "
+                fcc "RTS  "
 		fcb 0
 		fdb $39
                 fcc "SBCA "
@@ -2143,13 +2016,10 @@ ixregs		fcc "XYUS"
 * opcode offsets to basic opcode, depends on first nibble. 
 opcoffs		fcb 0,0,0,0,0,0,-$60,-$70
 		fcb 0,-$10,-$20,-$30,0,-$10,-$20,-$30
-
 * mode depending on first nibble of opcode.
 modetab		fcb 3,0,0,0,0,0,5,4,1,3,5,4,1,3,5,4
-
 * mode depending on category code stored in mnemtab
 modetab2	fcb 0,0,1,5,6,7,7,1,2,2,0,8,9
-
 * modes in this context: 0 no operands, 1 8-bit immediate, 2 16 bit imm,
 * 3, 8-bit address, 4 16 bit address, 5 indexed with postbyte, 6 short
 * relative, 7 long relative, 8 pushpul, 9 tftetx
@@ -2159,7 +2029,7 @@ modetab2	fcb 0,0,1,5,6,7,7,1,2,2,0,8,9
 * Y points past instruction. 
 * It's rather clumsy code, but we do want to reuse the same table
 * as used with assembling.
-disdecode		clr prebyte
+disdecode	clr prebyte
 		clr amode
 		lda ,y+
 		cmpa #$10
@@ -2182,12 +2052,12 @@ ddec2		sta opcode
 ddec4		sta opc1            ;Store the 'basis' opcode.
 		ldu #mnemtab
 		ldx #mnemsize
-ddecloop		ldb #13
+ddecloop	ldb #13
 		cmpb 5,u            ;Compare category code with 13
-		beq ddec3	    	;13=pseudo op, no valid opcode
+		beq ddec3	    ;13=pseudo op, no valid opcode
 		ldd prebyte
 		cmpd 6,u
-		beq ddecfound	;Opcode&prebyte agree, operation found.
+		beq ddecfound	    ;Opcode&prebyte agree, operation found.
 ddec3		leau 8,u            ;point to next mnemonic
 		leax -1,x
 		bne ddecloop        
@@ -2199,28 +2069,27 @@ ddec3		leau 8,u            ;point to next mnemonic
 		beq ddec5
 		lda prebyte 	    ;if it was the combination prebyte
 		clr prebyte         ;and opcode that was not found,
-         		leay -1,y 	    ;FCB just the prebyte
-ddec5	        	sta operand+1       ;The byte must be stored as operand.	
+         	leay -1,y 	    ;FCB just the prebyte
+ddec5	        sta operand+1       ;The byte must be stored as operand.	
 		rts
-ddecfound       	cmpu #mnembsr
+ddecfound       cmpu #mnembsr
 		bne ddec6
 		lda #$8d	    ;Is it really the BSR opcode?
 		cmpa opcode
 		beq ddec6
 		ldu #mnemjsr        ;We mistakenly found BSR instead of JSR
-ddec6           	lda amode
+ddec6           lda amode
 		anda #$FE
 		bne ddec7
 		lda 5,u             ;nibble-dependent mode was 0 or 1,
 		ldx #modetab2       ;use category dependent mode instead.
 		lda a,x
 		sta amode
-ddec7           	lda amode
+ddec7           lda amode
 		asla
 		ldx #disdectab
 		jmp [a,x]           ;jump dependent on definitive mode.
-
-disdectab		fdb noop,opdec1,opdec2,opdec1,opdec2,opdecidx
+disdectab	fdb noop,opdec1,opdec2,opdec1,opdec2,opdecidx
 		fdb opdec1,opdec2,opdecpb,opdecpb
 disdectab1	fdb noop,noop,noop,noop,noop,noop,noop,noop
 		fdb opdec1,opdec2,noop,noop,opdec1,opdec2,noop,opdec2
@@ -2257,7 +2126,7 @@ disdisptab	fdb noop,disim8,disim16,disadr8,disadr16
 disim8		bsr puthash
 		bra disadr8
 disim16		bsr puthash
-disadr16		bsr putdol
+disadr16	bsr putdol
 		ldd operand
 		jmp outd
 disadr8		bsr putdol
@@ -2269,7 +2138,7 @@ disrel8		bsr putdol
 dr8a		sty temp
 		addd temp
 		jmp outd
-disrel16		bsr putdol
+disrel16	bsr putdol
 		ldd operand
 		bra dr8a
 		
@@ -2277,9 +2146,9 @@ puthash		ldb #'#'
 		jmp putchar
 putdol		ldb #'$'
 		jmp putchar						    
-putcomma		ldb #','
+putcomma	ldb #','
 		jmp putchar
-putspace		ldb #' '
+putspace	ldb #' '
 		jmp putchar
 
 dispush		ldb #12
@@ -2295,24 +2164,24 @@ regloop		lda postbyte
 		anda #2
 		bne dispush1    ;no u register in pshu pulu.
 		lda temp+1		
-dispush3		cmpx #aregs
+dispush3	cmpx #aregs
 		bne dispush4
 		sta temp+1
 		lda opcode
 		anda #2
 		beq dispush1   ;no s register in pshs puls.
 		lda temp+1
-dispush4		coma
+dispush4	coma
 		anda postbyte   ;remove the bits from postbyte.
 		sta postbyte
 		pshs b          
 		tst temp
 		beq dispush2
 		bsr putcomma	;print comma after first register.
-dispush2		bsr disregname
+dispush2	bsr disregname
 		inc temp
 		puls b
-dispush1		leax 5,x
+dispush1	leax 5,x
 		decb
 		bne regloop		
 		rts
@@ -2326,14 +2195,14 @@ distfr 		lda postbyte
 		bsr putcomma
 		lda postbyte
 		anda #$0f
-distfrsub		ldb #12
+distfrsub	ldb #12
 		ldx #asmregtab
 distfrloop	cmpa 3,x
 		beq distfrend
 		leax 5,x
 		decb
 		bne distfrloop
-distfrend		bsr disregname
+distfrend	bsr disregname
 		rts
 
 disregname	lda #3
@@ -2346,7 +2215,7 @@ drnloop		ldb ,u+
 		bne drnloop
 drnend		rts
 
-disidxreg		lda postbyte
+disidxreg	lda postbyte
 		lsra
 		lsra
 		lsra
@@ -2370,13 +2239,13 @@ negoffs		ldb #'-'
 		ora #$f0
 		nega
 		jsr outdecbyte
-discomma		jsr putcomma         ;Display ,Xreg and terminating ]
-disindex		bsr disidxreg
-disindir		tst temp             ;Display ] if indirect.
+discomma	jsr putcomma         ;Display ,Xreg and terminating ]
+disindex	bsr disidxreg
+disindir	tst temp             ;Display ] if indirect.
 		beq disidxend      
 		ldb #']'       
 		jsr putchar
-disidxend		rts
+disidxend	rts
 disidx1		bita #$10			
 		beq disidx2
 		ldb #'['
@@ -2387,16 +2256,16 @@ disidx2		lda postbyte
 		asla
 		ldx #disidxtab
 		jmp [a,x]	     ;Jump to routine for indexed mode
-disadec2		lda #2
+disadec2	lda #2
 		bra disadeca
-disadec1 		lda #1		
-disadeca		jsr putcomma
-disadloop		ldb #'-'
+disadec1 	lda #1		
+disadeca	jsr putcomma
+disadloop	ldb #'-'
 		jsr putchar
 		deca
 		bne disadloop
 		bra disindex
-disainc2		lda #2
+disainc2	lda #2
 		bra disainca
 disainc1	lda #1
 disainca	sta temp+1
@@ -2479,7 +2348,7 @@ dis1		ldd addr
 		addd length
 		std length
 		ldy addr
-unasmloop		tfr y,d
+unasmloop	tfr y,d
 		jsr outd        ;Display instruction address
 		jsr putspace
 		pshs y
@@ -2487,13 +2356,13 @@ unasmloop		tfr y,d
 		puls x
 		sty temp
 		clr temp2
-unadishex		lda ,x+
+unadishex	lda ,x+
 		jsr outbyte
 		inc temp2
 		inc temp2
 		cmpx temp
 		bne unadishex  ;Display instruction bytes as hex.
-unadisspc		ldb #' '
+unadisspc	ldb #' '
 		jsr putchar
 		inc temp2
 		lda #11
@@ -2979,12 +2848,12 @@ shortindex	cmpd #-128
 		blt longindex
 		cmpd #127
 		bgt longindex
-shortind1		inc opsize
+shortind1	inc opsize
 		ldb #$88
 		orb postbyte
 		stb postbyte
 		lbra scanend
-longindex		lda #$2
+longindex	lda #$2
 		sta opsize
 		ldb #$89
 		orb postbyte
@@ -2997,20 +2866,20 @@ dopcrel		ldb ,x+
 		cmpb #'R'
 		bhi pcrelend
 		bra dopcrel	;Scan past the ,PCR 
-pcrelend		leax -1,x
+pcrelend	leax -1,x
 		ldb #$8C
 		orb postbyte	;Set postbyte
 		stb postbyte	
-		inc amode		;Set addr mode to PCR
+		inc amode	;Set addr mode to PCR
 		lbra scanend
 
 * Scan for one of the 4 index registers and adjust postbyte. 
-scanixreg		ldb ,x+
+scanixreg	ldb ,x+
 		andb #CASEMASK	;Convert to uppercase.
 		pshs x
 		ldx #ixregs
 		clra
-scidxloop		cmpb ,x+
+scidxloop	cmpb ,x+
 		beq ixfound
 		adda #$20
 		bpl scidxloop
@@ -3046,7 +2915,7 @@ doa1		lda opsize
 		jmp putword
 doa2		ldb operand+1
 		jmp putbyte		
-doapcrel		sty addr
+doapcrel	sty addr
 		ldd operand
 		subd addr
 		subd #1
@@ -3070,8 +2939,8 @@ pcrlong		subd #1
 		puls d
 		jmp putword
 
-; This routine checks and lays down short relative address.
-shortrel		sty addr
+* This routine checks and lays down short relative address.
+shortrel	sty addr
 		subd addr
 		subd #1
 		cmpd #-128
@@ -3084,7 +2953,7 @@ shortrel		sty addr
 		lda #1
 		sta opsize
 		rts
-; This routine lays down long relative address.
+* This routine lays down long relative address.
 longrel		sty addr
 		subd addr
 		subd #2
@@ -3102,14 +2971,14 @@ exprerr		ldx #exprmsg
 moderr		ldx #modemsg
 		jmp asmerrvec
 asmerr		pshs x
-		; jsr xabortin
+		jsr xabortin
 		puls x
 		jsr outcount
 		jsr putcr
 		lds savesp
 		jmp cmdline
 
-; Find register for TFR and PSH instruction
+* Find register for TFR and PSH instruction
 findreg		ldb #12
 		pshs y,b
 		ldu #asmregtab
@@ -3139,9 +3008,9 @@ frfound		leau a,u
 		puls y,b
 		rts
 
-; This is the code for the A command, assemble instructions.
-; Syntax: Aaddr
-asmc             	ldx #linebuf+1
+* This is the code for the A command, assemble instructions.
+* Syntax: Aaddr
+asm             ldx #linebuf+1
 		jsr scanhex
 		std addr
 		inc disflg	
@@ -3158,8 +3027,8 @@ asmloop		ldy #0
 		puls d
 		std addr
 
-;		ldd addr
-;		jsr outd
+*		ldd addr
+*		jsr outd
 
 		ldb #TAB
 		jsr putchar     ;Print TAB
@@ -3169,7 +3038,7 @@ asmloop		ldy #0
 		tstb    
 		beq next
 
-;		beq asmend      ;Exit on empty line.
+***		beq asmend      ;Exit on empty line.
 		abx 
 		clr ,x          ;Make line zero terminated.
 		ldx #linebuf
@@ -3188,7 +3057,7 @@ asmend		clr disflg
 
 
 * Jump table for monitor routines that are usable by other programs.
-		org MONSTART+$1fc0
+		org $ffc0
 		jmp outbyte
 		jmp outd
 		jmp scanbyte
@@ -3199,8 +3068,7 @@ asmend		clr disflg
 								
 * Interrupt vector addresses at top of ROM. Most are vectored through jumps
 * in RAM.
-		org MONSTART+$1ff0
-		fdb $0000
+		org $fff2
 		fdb swi3vec
 		fdb swi2vec
 		fdb firqvec
@@ -3208,7 +3076,5 @@ asmend		clr disflg
 		fdb swivec
 		fdb nmivec
 		fdb reset
-
-MONEND		equ *
 
 		end
