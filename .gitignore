@@ -1,9 +1,8 @@
-# Binary files created by the cross compiler or assembler
+# Files created by the cross compiler or assembler
 *.hex
 *.bin
-
-# Compilation memory labels
-*.cnt
+*.lst 
+*.cnt 
 
 # Textpad text editor workspace file
 *.tws

@@ -1,61 +1,10 @@
-* Memory-resident monitor for Multicomp09 running FLEX
-*
-* Derived from Lennart Benschop's
 * "Buggy machine language monitor and rudimentary O.S. version 1.0"
-* by foofoobedoo@gmail.com
 *
-* After booting FLEX, load this program into memory thus:
-* +++MON09
-* The program will initialise and then return to the FLEX prompt.
-* Once loaded and intialised in this way, you can enter it at
-* any time from FLEX using the FLEX build-in command, MON:
-* +++MON
-* and return to FLEX using the monitor command: G CD03
-*
-*
-* Entry/Exit points:
-* RESET - Entry from reset. In this case, set sp, dp etc.
-*   init workspace. Init I/O. Exit: nowhere to go back to
-*   so do nothing.
-* FLOAD - Entry from FLEX (load-time). In this case, set sp, dp
-*   etc, init workspace. Don't init I/O. Tie in to FLEX MON vector.
-*   Exit: restore dp, branch to FLEX warm start point (which
-*   resets sp)
-* MON - Entry from FLEX (run-time). Keep sp? load dp.
-*   Exit: restore dp, branch to FLEX warm start point (which
-*   resets sp)
-* NMI - Entry from single-step logic.
-* FIQ - Entry from special key-press. State saved on existing
-*   stack. Load dp. Honour Interactive flag.
-*   Exit: ensure UART output idle (main program could have discerned
-*   this just as FIQ was serviced), Do rti.
-* IRQ - Entry from periodic timer interrupt.
-*   State saved in existing stack. Load dp. Check
-*   sstep flag.
-*   Exit: if timer, service and return through rti. If
-*   sstep rti will return to cli [NAC HACK 2015Jul18] could have a trace
-*   capability where we run for N single steps?
-* SWI - Entry from breakpoint.
-*
-* .. in the NMI, FIRQ, SWI cases, buggy must already have been
-* initialised.
-*
-* Use-case: load and start Buggy from FLEX. Load and start program
-* from FLEX. Press key to NMI to Buggy. Set breakpoint then exit.
+* Use-case: Load and start Buggy. Load and start program.
+* Press key to NMI to Buggy. Set breakpoint then exit.
 * Program resumes. Hits breakpoint and enters Buggy. At this point
 * need to know that "Exit" from Buggy should take us back to the
-* program. I think this will all happen based on the stacked register
-* set which means, in the case of RESET, FLOAD and MON we simply need
-* to stack the correct values then "Exit" and "Continue" (if such a
-* thing exists) will resume in the same way.
-* May also want an explicit FLEX warm start command, which only has
-* effect in the case where we came in through FLEX.
-*
-* To tie in to FLEX MON command need to change the MONITR vector at
-* $D3F3 to the value of MON then return to FLEX by doing a FLEX warm
-* start.
-*
-* FLEX warm start (jump to $CD03) resets the stack pointer
+* program.
 *
 * Memory Map:
 * - Designed to be RAM-resident at D000-FFFF (loaded in when
@@ -65,69 +14,11 @@
 * I/O:
 *
 *
-*
 * Interrupts:
 * multicomp timer interrupt is on IRQ.
 * multicomp single-step logic is on NMI
 *
 *
-* ** to delete?:
-* xrecord
-* ** to add:
-* sdcard load
-* flags for timer interrupt and interactive mode
-* exit to return to FLEX
-* mmapping?
-* memory compare
-* TODO think about the impact of the SP messing on
-* INT and NMI.. may need to rethink things? Or is it all
-* safe?
-*
-*
-* remove any messing with DP and any page-0 access.
-* be careful of any messing with interrupt flags
-*
-* bug/todo
-* 0. exec09 doesn't include LIST in help screen
-* 1. why does exec09 complain about final line of .hex file?
-*      line 222: invalid hex record information. (line 222 is the last line - a blank line)
-*    might be due to file having DOS line endings (same problem does not occur with unix line
-*    endings in 6809M.HEX)
-* 2. d,1000,70 prints 70 the first time but afterwards d prints
-*    a default of 40. Why not 70? Likewise U,
-* 3. some commands *need* a comma (u 100,20 and d 100,69) some do not (e 400 "hello")
-* 4. how does bytes argument work for E and F?
-* 6. what do G vs I vs J do?
-* 7. what does P do?
-* 8. remove unusable commands??
-* 9. add new commands
-* 10. add new entry points and exit vectors
-* 12. can go e"hello world" and it goes somewhere. Dangerous, and not
-*     covered as legal syntax!
-* 13. e accepts 00 but not 0 as legal input - change scanbyte to
-*     accept 1 or 2 hex digits if delimited by space.
-* 14. make - go back in assembler. Need to remember what address we started at.
-* 15. Breakpoint (now) works but has restriction that you cannot interrupt a loop with a
-*     single breakpoint. Reason is that, when you try to restart from the breakpoint
-*     address, need to execute that instruction and so cannot insert breakpoint there.
-*     Need to implement single step to fix that problem. Side-step it by inserting 2
-*     breakpoints, eg at successive instructions.
-* 16. To build for FLEX need to set wsstart to $e000. Cannot run like that in exec09
-*     because there's no RAM there at load time. Make the startup code work this out
-*     and choose a ws automatically based on environment.. can then run from ROM.
-* 17. BUG if assemble errors-out, disflg is left in wrong state and subsequent
-*     unassemble is mis-formatted.
-* 18. BUG implicit ops (eg RTS) are disassembled with no trailing space so
-*     when assembling the line indent is wrong. Should add 8 spaces
-* 19. BUG when assembling leading whitespace causes an error.
-* 20. (my bug) with separate DP between buggy and application, cannot call
-*     any buggy routines if those routines use dp accesses.
-* 21. Since Multicomp09 use NMI for single step, could remove all of the
-*     toggling of interrupt masks here.
-
-* NEXT:
-* put harness in place to allow entry to and exit from FLEX
-
 * Memory map of SBC
 * $0-$40 Zero page variables reserved by monitor and O.S.
 * $40-$FF Zero page portion for user programs.
@@ -271,24 +162,6 @@ CASEMASK        equ $DF         ;Mask to make lowercase into uppercase.
                 org codestart
 
 ***************************************************************
-* Entry point from FLEX after buggy is loaded from disk. FLEX
-* patches its MON command in to buggy cold-start then
-* returns through FLEX warm-start vector.
-* TODO: in the future would like to leave buggy 'warm' so we
-* could come here from a FLEX nmi.
-fload           ldx #frmflx
-                stx monitr
-                jmp flexwrm
-
-***************************************************************
-* Entry point from reset
-* TODO: currently assumes we've been loaded into RAM by some
-* other agent (eg FLEX or Camelforth), and that the MMU has
-* already been initialised. If we wanted to actually start from
-* ROM would need to detect ROM and either copy to RAM and init
-* MMU or make location of wsstart variable and change it
-* accordingly.
-frmflx
 reset           orcc #$FF       ;Disable interrupts.
                 lda #wsstart/256
                 tfr a,dp        ;Set direct page register
@@ -873,7 +746,7 @@ traceone        orcc #$50       ;Disable interrupts.
 * waveforms on the WIKI. Do not mess with this instruction    *
 * sequence!!                                                  *
                 lda #$10        ;Set bit 4                    *
-                sta mmuadr                                    *
+*                 sta mmuadr                                    *
                 rti             ;Resume application           *
 ***************************************************************
 
@@ -2682,7 +2555,7 @@ frfound         leau a,u
 ***************************************************************
 * Command: A, assemble instructions.
 * Syntax: Aaddr
-asm             ldx #linebuf+1
+assem             ldx #linebuf+1
                 jsr scanhex
                 std addr
                 inc <disflg
@@ -3354,7 +3227,7 @@ osvectbl        jmp osgetc
 osvecend        equ *
 
 * Vector table for commands: A-Z (unk for non-existent commands)
-cmdtab          fdb asm,break,calc,dump
+cmdtab          fdb assem,break,calc,dump
                 fdb enter,find,go,help
                 fdb inp,jump,unk,unk
                 fdb move,unk,unk,prog
