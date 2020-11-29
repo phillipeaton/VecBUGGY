@@ -1,0 +1,12 @@
+# Binary files created by the cross compiler or assembler
+*.hex
+*.bin
+
+# Compilation memory labels
+*.cnt
+
+# Textpad text editor workspace file
+*.tws
+
+# Excel temp files
+~$*.xls*
