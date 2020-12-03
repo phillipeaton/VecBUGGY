@@ -7,51 +7,56 @@
 * program.
 *
 * Memory Map:
-* - Designed to be RAM-resident at D000-FFFF (loaded in when
-*   the ROM is disabled).
-* - Avoids address space $FFD0-FFDF, used for I/O in multicomp.
+* - Designed to be RAM-resident at D000-FFFF (loaded in when *********
+*   the ROM is disabled).                                    *********
+* - Avoids address space $FFD0-FFDF, used for I/O in multicomp. ******
 *
 * I/O:
-*
+* ***TBD***
 *
 * Interrupts:
 * multicomp timer interrupt is on IRQ.
 * multicomp single-step logic is on NMI
 *
 *
-* Memory map of SBC
-* $0-$40 Zero page variables reserved by monitor and O.S.
-* $40-$FF Zero page portion for user programs.
-* $100-$17F Xmodem buffer 0, terminal input buffer,
-* $180-$1FF Xmodem buffer 1, terminal output buffer.
-* $200-$27F Terminal input line.
-* $280-$2FF Variables reserved by monitor and O.S.
-* $300-$400 System stack.
-* $400-$7FFF RAM for user programs and data.
-* $8000-$DFFF PROM for user programs.
-* $E000-$E1FF I/O addresses.
-* $E200-$E3FF Reserved.
-* $E400-$FFFF Monitor ROM
+* Memory map of VecBuggy on Vectrex
+* $0000-$00FF Vectrex cart headerr.
+* $0100-$3FFF Monitor ROM code.
+* -----------------------------------------------------------
+* $4000-$403F I/O routine vectors & system vars.(rmbs)(wsstart)
+* $4040-$40FF *Unused*
+* $4100-$417F Xmodem buffer 0, serial input buffer.   (rambufs)
+* $4180-$41FF Xmodem buffer 1, serial output buffer.
+* $4200-$427F Input Line Buffer.
+* $4280-$42FF Interrupt vectors and monitor variables.(endvars)
+* $4300-$43FF System stack (grows down from ramfree).
+* $4400-$4FFF *Unused*                                (ramfree)
+* $5000-$7FFF *Unused* RAM for user programs and data.
+* -----------------------------------------------------------
+* $8000-$BFFF FT245R Tx/Rx.
+* $D000-$D001 FT245R PB6 Data Available
+* -----------------------------------------------------------
 
-
-* Define memory map
-ramstart        equ $0000       ;RAM start of local storage
-* TODO set wsstart to $6000 for debug using exec09, $e000 for hardware.
-wsstart         equ $e000       ;RAM start of workspace
+* * Define memory map
+* ramstart        equ $0000       ;RAM start of local storage
+* wsstart         equ $e000       ;RAM start of workspace
+* rambufs         equ wsstart+$100
+* ramfree         equ wsstart+$400 ;free RAM after local storage
+* codestart       equ $e400
+codestart       equ $0100         ;ROM start of monitor code
+wsstart         equ $4000         ;RAM start of workspace
 rambufs         equ wsstart+$100
-ramfree         equ wsstart+$400 ;free RAM after local storage
-codestart       equ $e400
+ramfree         equ wsstart+$400  ;Free RAM after local storage
+ramstart        equ $5000         ;RAM start of local storage
 
 * MULTICOMP I/O port addresses
-aciasta         equ $ffd0       ;RO Status port of VDU pseudo ACIA
-aciactl         equ $ffd0       ;WO Control port of VDU pseudo ACIA
-aciadat         equ $ffd1       ;Data port of VDU pseudo ACIA
-mmuadr          equ $ffde       ;mmu and single-step logic
+* FT245R USB to Parallel FIFO interface (Serial Port)
+8000            EQU ft245TxByteReg
+8000            EQU ft245RxByteReg
 
-* FLEX vectors
-flexwrm         equ $CD03
-monitr          equ $D3F3
-
+aciasta         equ $D000       ;RO Status port of VDU pseudo ACIA
+aciactl         equ $0000       ;WO Control port of VDU pseudo ACIA
+aciadat         equ $8000       ;Data port of VDU pseudo ACIA
 
 * Reserved direct page addresses
                 org wsstart
@@ -211,11 +216,11 @@ blockmove       lda ,x+
 
 ***************************************************************
 * Initialize serial communications port, buffers, interrupts.
-initacia        ldb #$03        ;Functional reset
-                stb aciactl
-                ldb #$16        ;Ignored by multicomp09
-                stb aciactl     ;Operating mode
-                rts
+* initacia        ldb #$03        ;Functional reset
+*                 stb aciactl
+*                 ldb #$16        ;Ignored by multicomp09
+*                 stb aciactl     ;Operating mode
+initacia          rts
 
 ***************************************************************
 * O.S. routine to read a character into B register.
@@ -224,6 +229,11 @@ osgetc          ldb aciasta
                 beq osgetc
                 ldb aciadat
                 rts
+
+*  CODE KEY   \ -- c    get char from serial port
+*     6 # ( D) PSHS,   BEGIN,   40 # LDB,   VIA_port_b BITB,  EQ UNTIL,
+*     ft245RxByteReg  LDB,   CLRA,   NEXT ;C
+
 
 ***************************************************************
 * O.S. routine to check if there is a character ready to be read.
@@ -235,6 +245,13 @@ osgetpoll       ldb aciasta
 poltrue         ldb #$ff
                 rts
 
+*  CODE KEY?  \ -- f    return true if char waiting
+*    6 # ( D) PSHS,   CLRA,   40 # LDB,   VIA_port_b BITB,
+*    EQ IF,   -1 # LDD,   ELSE,   CLRB,   THEN,   NEXT ;C
+
+
+
+
 ***************************************************************
 * O.S. routine to write the character in the B register.
 osputc          pshs a
@@ -244,6 +261,12 @@ putcloop        lda aciasta
                 stb aciadat
                 puls a
                 rts
+
+*  CODE EMIT  \ c --    output character to serial port
+*  \   BEGIN,   v4eTxStatReg  LDA,  MI UNTIL,    \ No Tx-Ready control line
+*     ft245TxByteReg STB,   6 # ( D) PULS,   NEXT ;C
+
+
 
 ***************************************************************
 * O.S. routine to read a line into memory at address X, at most B chars
@@ -3167,7 +3190,7 @@ mhelp           fcb     CR,LF
 
 
 * Other messages, as null-terminated strings.
-welcome         fcc "BUGGY for Multicomp09, 2016Feb11 (type h for help)"
+welcome         fcc "VecBUGGY v0.01 2020-12-03 Phillip Eaton (type h for help)"
                 fcb 0
 unknown         fcc "Unknown command"
                 fcb 0
