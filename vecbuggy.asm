@@ -23,18 +23,17 @@
 * $0000-$00FF Vectrex cart headerr.
 * $0100-$3FFF Monitor ROM code.
 * -----------------------------------------------------------
-* $4000-$403F I/O routine vectors & system vars.(rmbs)(wsstart)
-* $4040-$40FF *Unused*
-* $4100-$417F Xmodem buffer 0, serial input buffer.   (rambufs)
-* $4180-$41FF Xmodem buffer 1, serial output buffer.
-* $4200-$427F Input Line Buffer.
-* $4280-$42FF Interrupt vectors and monitor variables.(endvars)
-* $4300-$43FF System stack (grows down from ramfree).
-* $4400-$4FFF *Unused*                                (ramfree)
-* $5000-$7FFF *Unused* RAM for user programs and data.
+* $C880-$C8BF I/O routine vectors & system vars.(rmbs)(wsstart)
+* $C8C0-$C8FF *Unused*
+* $C900-$C97F Xmodem buffer 0, serial input buffer.   (rambufs)
+* $C980-$C9FF Xmodem buffer 1, serial output buffer.
+* $CA00-$CA7F Input Line Buffer.
+* $CA80-$CAFF Interrupt vectors and monitor variables.(endvars)
+* $CB00-$CB80 System stack (grows down from ramfree).
+* $CB80-$CBEA *Unused*                                (ramfree)
 * -----------------------------------------------------------
 * $8000-$BFFF FT245R Tx/Rx.
-* $D000-$D001 FT245R PB6 Data Available
+* $D000-$D000 FT245R PB6 Data Available
 * -----------------------------------------------------------
 
 * * Define memory map
@@ -43,19 +42,14 @@
 * rambufs         equ wsstart+$100
 * ramfree         equ wsstart+$400 ;free RAM after local storage
 * codestart       equ $e400
-codestart       equ $0100         ;ROM start of monitor code
-wsstart         equ $4000         ;RAM start of workspace
-rambufs         equ wsstart+$100
-ramfree         equ wsstart+$400  ;Free RAM after local storage
-ramstart        equ $5000         ;RAM start of local storage
+wsstart         equ $C800         ;RAM start of workspace
+rambufs         equ $C900
+ramfree         equ $CB00         ;Free RAM after local storage
+ramstart        equ $CB00         ;RAM start of local storage
 
-* MULTICOMP I/O port addresses
 * FT245R USB to Parallel FIFO interface (Serial Port)
-8000            EQU ft245TxByteReg
-8000            EQU ft245RxByteReg
-
 aciasta         equ $D000       ;RO Status port of VDU pseudo ACIA
-aciactl         equ $0000       ;WO Control port of VDU pseudo ACIA
+* aciactl       equ $0000       ;WO Control port of VDU pseudo ACIA
 aciadat         equ $8000       ;Data port of VDU pseudo ACIA
 
 * Reserved direct page addresses
@@ -74,6 +68,7 @@ xclosein        rmb 3           ;Jump to xclsin
 xcloseout       rmb 3           ;Jump to xclsout
 delay           rmb 3           ;Jump to osdly
 
+* wsstart+$24
 * System variables in the direct page.
 temp            rmb 2           ;hex scanning/disasm
 temp2           rmb 2           ;Hex scanning/disasm
@@ -85,13 +80,15 @@ lastok          rmb 1           ;flag to indicate last block was OK
 xcount          rmb 1           ;Count of characters in buffer.
 xmode           rmb 1           ;XMODEM mode, 0 none, 1 out, 2 in.
 disflg          rmb 1           ;0: CRLF after disassembly 1: no CRLF
+* wsstart+$33
 
 * I/O buffers.
-buflen          equ 128         ;Length of input line buffer.
+buflen          equ $80         ;Length of input line buffer.
 
                 org rambufs
-buf0            rmb 128         ;Xmodem buffer 0, serial input buffer.
-buf1            rmb 128         ;Xmodem buffer 1, serial output buffer.
+
+buf0            rmb $80         ;Xmodem buffer 0, serial input buffer.
+buf1            rmb $80         ;Xmodem buffer 1, serial output buffer.
 linebuf         rmb buflen      ;Input line buffer.
 
 * [NAC HACK 2015Jul16] since the buffer uses X to address it (ie, non ZP)
@@ -147,7 +144,6 @@ dpsetting       rmb 2
 
 endvars         equ *
 
-
 * ASCII control characters.
 SOH             equ 1
 EOT             equ 4
@@ -163,11 +159,28 @@ DEL             equ 127
 CASEMASK        equ $DF         ;Mask to make lowercase into uppercase.
 
 ***************************************************************
-* Monitor code starts here.
-                org codestart
+* Mandatory Vectrex cartridge header
+music1          equ     $FD0D          ; address of a (BIOS ROM)
+                                       ; music
+                org 0
+
+                fcc "g GCE 2020"       ; 'g' is copyright sign
+                fcb $80                ; ending with $80
+                fdb music1             ; music from the rom
+                fcb $F8,$50,$20,-$56   ; height, width, rel y, rel x (from 0,0)
+                                       ;
+                fcc "VECBUGGY"         ; some game information,
+                fcb $80                ; ending with $80
+                fcb 0                  ; end of game header
 
 ***************************************************************
-reset           orcc #$FF       ;Disable interrupts.
+* Monitor code starts here.
+reset           ldb #$40
+                stb $8000
+
+
+
+                orcc #$FF       ;Disable interrupts.
                 lda #wsstart/256
                 tfr a,dp        ;Set direct page register
                 clr <disflg
@@ -216,57 +229,38 @@ blockmove       lda ,x+
 
 ***************************************************************
 * Initialize serial communications port, buffers, interrupts.
-* initacia        ldb #$03        ;Functional reset
-*                 stb aciactl
-*                 ldb #$16        ;Ignored by multicomp09
-*                 stb aciactl     ;Operating mode
-initacia          rts
+initacia        rts
 
 ***************************************************************
 * O.S. routine to read a character into B register.
 osgetc          ldb aciasta
-                bitb #$01
+                bitb #$40
                 beq osgetc
                 ldb aciadat
                 rts
-
 *  CODE KEY   \ -- c    get char from serial port
 *     6 # ( D) PSHS,   BEGIN,   40 # LDB,   VIA_port_b BITB,  EQ UNTIL,
 *     ft245RxByteReg  LDB,   CLRA,   NEXT ;C
 
-
 ***************************************************************
 * O.S. routine to check if there is a character ready to be read.
+* osgetpoll       ldb aciasta
+*                 bitb #$01
 osgetpoll       ldb aciasta
-                bitb #$01
+                bitb #$40
                 bne poltrue
                 clrb
                 rts
 poltrue         ldb #$ff
                 rts
-
 *  CODE KEY?  \ -- f    return true if char waiting
 *    6 # ( D) PSHS,   CLRA,   40 # LDB,   VIA_port_b BITB,
 *    EQ IF,   -1 # LDD,   ELSE,   CLRB,   THEN,   NEXT ;C
 
-
-
-
 ***************************************************************
 * O.S. routine to write the character in the B register.
-osputc          pshs a
-putcloop        lda aciasta
-                bita #$02
-                beq putcloop
-                stb aciadat
-                puls a
+osputc          stb aciadat
                 rts
-
-*  CODE EMIT  \ c --    output character to serial port
-*  \   BEGIN,   v4eTxStatReg  LDA,  MI UNTIL,    \ No Tx-Ready control line
-*     ft245TxByteReg STB,   6 # ( D) PULS,   NEXT ;C
-
-
 
 ***************************************************************
 * O.S. routine to read a line into memory at address X, at most B chars
@@ -3260,7 +3254,7 @@ cmdtab          fdb assem,break,calc,dump
 
 * Vector table for monitor routines that are usable by other programs.
 * These entries should be in a fixed place in memory. Jump through them.
-                org $ffb0
+                org $1fb0
                 fdb outbyte
                 fdb outd
                 fdb scanbyte
@@ -3272,7 +3266,7 @@ cmdtab          fdb assem,break,calc,dump
 
 * Interrupt vector addresses at top of ROM. Most are vectored through jumps
 * in RAM.
-                org $fff2
+                org $1ff2
                 fdb swi3vec
                 fdb swi2vec
                 fdb firqvec
