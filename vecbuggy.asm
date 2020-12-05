@@ -1,3 +1,6 @@
+* a09 assembler directive to stop listing file wordwrap
+ SETLI 160
+
 * "Buggy machine language monitor and rudimentary O.S. version 1.0"
 *
 * Use-case: Load and start Buggy. Load and start program.
@@ -175,12 +178,7 @@ music1          equ     $FD0D          ; address of a (BIOS ROM)
 
 ***************************************************************
 * Monitor code starts here.
-reset           ldb #$40
-                stb $8000
-
-
-
-                orcc #$FF       ;Disable interrupts.
+reset           orcc #$FF       ;Disable interrupts.
                 lda #wsstart/256
                 tfr a,dp        ;Set direct page register
                 clr <disflg
@@ -346,7 +344,8 @@ oscr            pshs b
 outnts          pshs x,b
 outnts1         ldb ,x+
                 beq outnts2
-                jsr <putchar
+*                jsr <putchar
+                jsr putchar
                 bra outnts1
 outnts2         puls x,b
                 rts
@@ -3184,7 +3183,9 @@ mhelp           fcb     CR,LF
 
 
 * Other messages, as null-terminated strings.
-welcome         fcc "VecBUGGY v0.01 2020-12-03 Phillip Eaton (type h for help)"
+welcome         fcc "VecBUGGY v0.01 2020-12-05 Phillip Eaton, a port of the"
+                fcb CR,LF
+                fcc "original BUGGY by Lennart Benschop (type h for help)"
                 fcb 0
 unknown         fcc "Unknown command"
                 fcb 0
@@ -3216,31 +3217,31 @@ brmsg           fcc "Branch too long"
                 fcb 0
 
 * This jump table will be copied to the interrupt jump table area in RAM.
-intvectbl       jmp endirq      ; swi3vec
-                jmp endirq      ; swi2vec
-                jmp timerirq    ; firqvec
-                jmp aciairq     ; irqvec
-                jmp unlaunch    ; swivec
-                jmp endirq      ; nmivec
-                jmp xerrhand    ; xerrvec
-                jmp expr        ; exprvec
-                jmp asmerr      ; asmerrvec   [NAC HACK 2015Aug23] bugfix! original was: jmp asmerrvec
-                jmp pseudo      ; pseudovec
+intvectbl       jmp >endirq      ; swi3vec
+                jmp >endirq      ; swi2vec
+                jmp >timerirq    ; firqvec
+                jmp >aciairq     ; irqvec
+                jmp >unlaunch    ; swivec
+                jmp >endirq      ; nmivec
+                jmp >xerrhand    ; xerrvec
+                jmp >expr        ; exprvec
+                jmp >asmerr      ; asmerrvec   [NAC HACK 2015Aug23] bugfix! original was: jmp asmerrvec
+                jmp >pseudo      ; pseudovec
 intvecend       equ *
 
 * This jump table will be copied to the I/O jump table area in RAM.
-osvectbl        jmp osgetc
-                jmp osputc
-                jmp osgetl
-                jmp osputl
-                jmp oscr
-                jmp osgetpoll
-                jmp xopin
-                jmp xopout
-                jmp xabtin
-                jmp xclsin
-                jmp xclsout
-                jmp osdly
+osvectbl        jmp >osgetc
+                jmp >osputc
+                jmp >osgetl
+                jmp >osputl
+                jmp >oscr
+                jmp >osgetpoll
+                jmp >xopin
+                jmp >xopout
+                jmp >xabtin
+                jmp >xclsin
+                jmp >xclsout
+                jmp >osdly
 osvecend        equ *
 
 * Vector table for commands: A-Z (unk for non-existent commands)
