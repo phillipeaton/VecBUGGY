@@ -163,15 +163,14 @@ CASEMASK        equ $DF         ;Mask to make lowercase into uppercase.
 
 ***************************************************************
 * Mandatory Vectrex cartridge header
-music1          equ     $FD0D          ; address of a (BIOS ROM)
-                                       ; music
+music1          equ     $FD0D          ; address of a (BIOS ROM) music
+
                 org 0
 
                 fcc "g GCE 2020"       ; 'g' is copyright sign
                 fcb $80                ; ending with $80
                 fdb music1             ; music from the rom
                 fcb $F8,$50,$20,-$56   ; height, width, rel y, rel x (from 0,0)
-                                       ;
                 fcc "VECBUGGY"         ; some game information,
                 fcb $80                ; ending with $80
                 fcb 0                  ; end of game header
@@ -191,7 +190,6 @@ reset           orcc #$FF       ;Disable interrupts.
                 ldu #getchar    ;destination in RAM
                 ldb #osvecend-osvectbl
                 bsr blockmove   ;Initialize I/O vectors from ROM.
-
                 bsr initacia    ;Initialize serial port.
                 andcc #$0       ;Enable interrupts
 
@@ -227,33 +225,25 @@ blockmove       lda ,x+
 
 ***************************************************************
 * Initialize serial communications port, buffers, interrupts.
-initacia        rts
+initacia        rts             ;With an FT245, nothing to init
 
 ***************************************************************
 * O.S. routine to read a character into B register.
-osgetc          ldb aciasta
-                bitb #$40
-                beq osgetc
+osgetc          ldb #$40        ;6522 VIA PB6 line used to read
+                bitb aciasta    ;data ready signal
+                bne osgetc
                 ldb aciadat
                 rts
-*  CODE KEY   \ -- c    get char from serial port
-*     6 # ( D) PSHS,   BEGIN,   40 # LDB,   VIA_port_b BITB,  EQ UNTIL,
-*     ft245RxByteReg  LDB,   CLRA,   NEXT ;C
 
 ***************************************************************
 * O.S. routine to check if there is a character ready to be read.
-* osgetpoll       ldb aciasta
-*                 bitb #$01
-osgetpoll       ldb aciasta
-                bitb #$40
+osgetpoll       ldb #$40        ;6522 VIA PB6 line used to read
+                bitb aciasta    ;data ready signal
                 bne poltrue
                 clrb
                 rts
 poltrue         ldb #$ff
                 rts
-*  CODE KEY?  \ -- f    return true if char waiting
-*    6 # ( D) PSHS,   CLRA,   40 # LDB,   VIA_port_b BITB,
-*    EQ IF,   -1 # LDD,   ELSE,   CLRB,   THEN,   NEXT ;C
 
 ***************************************************************
 * O.S. routine to write the character in the B register.
